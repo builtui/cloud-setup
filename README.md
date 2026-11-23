@@ -68,6 +68,30 @@ Empfehlung: Basis klein halten (jede Skill-Beschreibung kostet in jeder Session 
 aus der Link Library (hoch bewertet, alle getestet klonbar): `emilkowalski/skills`, `mattpocock/skills`,
 `humanlayer/skills`, pstack (`cursor/plugins` → `pstack/skills`, Skills hängen voneinander ab, besser als Plugin).
 
+## Helfer, die das Skript installiert
+
+| Befehl | Wofür |
+|---|---|
+| `cloud-services docker\|mariadb\|postgres\|redis\|all` | Dienste pro Session starten (laufen nach dem Start nie) |
+| `docker-run-proxied …` | `docker run` mit Internet über den Session-Proxy |
+| `cloud-warm <ordner> [chromium webkit]` | **Im Setup-Feld:** Paket-Cache (pnpm/npm/composer/uv) und passende Playwright-Browser vorab in den Snapshot laden, ohne Install-Skripte |
+| `cloud-install <ordner>` | **In der Session:** Abhängigkeiten installieren, wenn Umgebungsvariablen (z. B. Lizenz-Keys) da sind; überspringt, wenn das Lockfile unverändert ist |
+| `/Applications/Google Chrome.app/…` | Wrapper auf das Linux-Chrome mit `--no-sandbox`, damit Skripte mit festem macOS-Pfad laufen |
+
+Warum zwei Schritte: Das Setup-Skript sieht die Umgebungsvariablen der Umgebung noch nicht. Pakete mit Lizenzprüfung im
+Install-Skript (z. B. Central Icons) scheitern dort. `cloud-warm` lädt alles vorab, `cloud-install` installiert dann in
+Sekunden aus dem Cache. Projekt-Threads führen keine Repo-Hooks aus, deshalb steht der Hinweis auf `cloud-install` in
+`~/.claude/CLAUDE.md`.
+
+Playwright lädt Browser von `cdn.playwright.dev`. Das ist im Netzwerk-Level *Limited* nicht freigegeben: entweder *Full*
+nutzen oder die Domain unter „Allowed domains“ eintragen.
+
+## Orvel (optional)
+
+`WITH_ORVEL=1 ORVEL_CLI_URL=<basis-url> bash <(curl …)` installiert die Orvel-CLI (mit SHA-256-Prüfung), den Wrapper
+`orvel-todo` und den Skill `orvel-todo`. Sessions legen damit Aufgaben an, die nur der Nutzer selbst erledigen kann.
+Die Umgebung braucht dafür die Variable `ORVEL_AGENT_CREDENTIAL`. Fehlt Binary oder Credential, bricht nichts ab.
+
 ## Einbinden
 
 Ins Feld **Setup script** der Cloud-Umgebung (claude.ai/code → Project settings → Environment → Zahnrad der Umgebung):
