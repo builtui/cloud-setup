@@ -149,6 +149,17 @@ nach, bevor sie fragen oder neu recherchieren, und tragen am Ende ein, was über
 Issues mit Label `an:<project>` dienen als Postfach zwischen Projects. **Das private Repo (`WISSEN_REPO`, Standard `builtui/ops`) muss an
 jedes Project gehängt werden**, sonst arbeitet die Session ohne es weiter (das Setup kann private Repos nicht klonen).
 
+## Werkzeuge aus der Link-Sammlung (geprüft 23.11.2026)
+
+| Schalter | Was | Standard |
+|---|---|---|
+| `EXPLORE_MODEL=haiku` | Ersetzt den eingebauten Such-Helfer `Explore` (läuft sonst auf dem Hauptmodell) durch `~/.claude/agents/Explore.md` mit günstigem Modell. Getestet in einem frischen Claude-Code-Prozess der VM: Explore lief auf Haiku. Leer = Standard | an |
+| `WITH_CF_CLI=1` | Cloudflare-CLI `cf` (Beta, `CF_CLI_VERSION`, getestet 1.0.0-rc.4), Telemetrie aus (`CF_SEND_TELEMETRY=false`). Token als `CLOUDFLARE_API_TOKEN` | an |
+| `WITH_EMULATE=1` | vercel-labs/emulate: lokale Stellvertreter für GitHub, Google, Slack, Vercel u. a. für Tests ohne echte Konten | aus, pro Projekt |
+| `WITH_REACT_DOCTOR=1` | react-doctor für React-Projekte, immer mit `--no-telemetry --no-supply-chain` (sonst gehen Daten an den Anbieter) | aus, pro Projekt |
+
+Nur die eingeschalteten Werkzeuge bekommen eine Zeile in `~/.claude/CLAUDE.md`.
+
 ## Orvel (optional)
 
 `WITH_ORVEL=1 ORVEL_CLI_URL=<basis-url> bash <(curl …)` installiert die Orvel-CLI (mit SHA-256-Prüfung), den Wrapper

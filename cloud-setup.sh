@@ -35,6 +35,11 @@ echo "== cloud-setup start $(date -Is) =="
 : "${WITH_MARIADB:=1}"        # MariaDB-Server installieren (TYPO3/Shopware)
 : "${WITH_AGENT_BROWSER:=1}"  # vercel-labs/agent-browser (Browser-CLI für Agenten)
 : "${WITH_VERCEL_CLI:=0}"     # Vercel CLI (nur bei Vercel-Deployments sinnvoll)
+: "${WITH_CF_CLI:=1}"         # Cloudflare-CLI cf (Beta, für Agenten gebaut), Telemetrie aus
+: "${CF_CLI_VERSION:=1.0.0-rc.4}"
+: "${WITH_EMULATE:=0}"        # vercel-labs/emulate: lokale Stellvertreter für GitHub, Resend, S3, Stripe …
+: "${WITH_REACT_DOCTOR:=0}"   # react-doctor: Prüfung für React-Code (nur React-Projekte)
+: "${EXPLORE_MODEL:=haiku}"   # Modell des Such-Helfers Explore (leer = Standard, also das Hauptmodell)
 : "${WITH_SKILLS:=1}"         # Skills aus GitHub nach ~/.claude/skills holen
 : "${WITH_REPO_HOOKS:=1}"     # <repo>/.claude/cloud-setup.sh jedes Repos ausführen
 : "${LOCAL_CI:=1}"            # Sessions prüfen in der VM statt über GitHub Actions
@@ -82,6 +87,12 @@ for rc in /root/.bashrc /root/.profile; do
 done
 grep -q COMPOSER_ALLOW_SUPERUSER /etc/environment 2>/dev/null || \
   printf 'COMPOSER_ALLOW_SUPERUSER=1\nCOMPOSER_NO_INTERACTION=1\n' >> /etc/environment
+# Telemetrie der Cloudflare-Werkzeuge aus (cf, wrangler)
+for rc in /root/.bashrc /root/.profile; do
+  grep -q CF_SEND_TELEMETRY "$rc" 2>/dev/null || echo 'export CF_SEND_TELEMETRY=false WRANGLER_SEND_METRICS=false' >> "$rc"
+done
+grep -q CF_SEND_TELEMETRY /etc/environment 2>/dev/null || \
+  printf 'CF_SEND_TELEMETRY=false\nWRANGLER_SEND_METRICS=false\n' >> /etc/environment
 step() { echo; echo "-- $* ($(( $(date +%s) - START ))s)"; }
 warn() { echo "!! WARNUNG: $*"; }
 
@@ -109,6 +120,9 @@ npm_job() {
   local pkgs="$NPM_EXTRA"
   [ "$WITH_AGENT_BROWSER" = 1 ] && pkgs="$pkgs agent-browser"
   [ "$WITH_VERCEL_CLI" = 1 ]    && pkgs="$pkgs vercel"
+  [ "$WITH_CF_CLI" = 1 ]        && pkgs="$pkgs cf@$CF_CLI_VERSION"
+  [ "$WITH_EMULATE" = 1 ]       && pkgs="$pkgs emulate"
+  [ "$WITH_REACT_DOCTOR" = 1 ]  && pkgs="$pkgs react-doctor"
   pkgs="$(echo $pkgs)"
   [ -z "$pkgs" ] && { echo "npm: nichts zu tun"; return; }
   npm install -g --silent --no-fund --no-audit $pkgs || warn "npm -g: $pkgs"
@@ -621,6 +635,28 @@ EOF
   chmod +x /usr/local/bin/cloud-preview
 fi
 
+# 4d) Such-Helfer Explore auf einem günstigen Modell -------------------------
+# Der eingebaute Explore-Agent läuft sonst auf dem Hauptmodell. Eine Datei gleichen
+# Namens in ~/.claude/agents ersetzt ihn (getestet: läuft dann auf haiku).
+if [ -n "$EXPLORE_MODEL" ]; then
+  mkdir -p /root/.claude/agents
+  cat > /root/.claude/agents/Explore.md <<EOF
+---
+name: Explore
+description: Read-only search agent for broad fan-out searches across many files, directories or naming conventions when only the conclusion is needed. Locates code and facts; does not review or audit. Specify breadth ("medium" or "very thorough").
+model: $EXPLORE_MODEL
+tools: Read, Grep, Glob, Bash
+---
+
+You are a fast, read-only search agent. Find what the caller asks for and report the conclusion with file paths and
+line numbers. Read excerpts, not whole files. Never edit, write, commit or run commands that change state; use Bash
+only for read-only commands (ls, rg, git log, git show, cat, head). Keep the report short: answer first, then the
+evidence (path:line), then what you could not find.
+EOF
+else
+  rm -f /root/.claude/agents/Explore.md
+fi
+
 # 5) Persönliche Hinweise für Claude (~/.claude/CLAUDE.md) --------------------
 step "/root/.claude/CLAUDE.md schreiben"
 mkdir -p /root/.claude
@@ -664,6 +700,22 @@ s = s.replace("<!-- cloud-setup:end -->", rule + "<!-- cloud-setup:end -->", 1)
 open(p, "w").write(s)
 PY
 fi
+{
+  [ "$WITH_CF_CLI" = 1 ] && printf '%s\n' '- Cloudflare: `cf` (Beta) für die ganze API; Befehle mit `cf cli search "<aufgabe>"` finden.' \
+    '  Token als `CLOUDFLARE_API_TOKEN` aus der Umgebung, nie im Befehl.'
+  [ "$WITH_EMULATE" = 1 ] && printf '%s\n' '- `emulate` (vercel-labs): lokale Stellvertreter für GitHub, Resend, S3, Stripe u. a.' \
+    '  (`emulate list`, `emulate start`). Für Tests von Mails und Abläufen statt echter Konten.'
+  [ "$WITH_REACT_DOCTOR" = 1 ] && printf '%s\n' '- React-Projekte: vor Abschluss `react-doctor <app> --no-telemetry --no-supply-chain -y`;' \
+    '  Funde zum geänderten Code beheben. Ohne die zwei Schalter schickt es Daten nach außen.'
+} > /tmp/cloud-setup-tools.md
+python3 - <<'PY'
+p = "/root/.claude/CLAUDE.md"
+s = open(p).read()
+add = open("/tmp/cloud-setup-tools.md").read()
+s = s.replace("<!-- cloud-setup:end -->", add + "<!-- cloud-setup:end -->", 1) if add else s
+open(p, "w").write(s)
+PY
+rm -f /tmp/cloud-setup-tools.md
 if [ "$WITH_RULES" = 1 ]; then
   python3 - <<'PY'
 p = "/root/.claude/CLAUDE.md"
@@ -846,7 +898,7 @@ step "Projektspezifische Schritte"
 
 # 8) Zusammenfassung ----------------------------------------------------------
 step "Fertig"
-for t in node php composer python3 uv go cargo docker psql mysql redis-server gh agent-browser vercel fd fzf shellcheck sqlite3 op tailscale cloud-services cloud-warm cloud-install cloud-doctor cloud-preview; do
+for t in node php composer python3 uv go cargo docker psql mysql redis-server gh agent-browser vercel fd fzf shellcheck sqlite3 op tailscale cf emulate react-doctor cloud-services cloud-warm cloud-install cloud-doctor cloud-preview; do
   printf "  %-14s %s\n" "$t" "$(command -v $t >/dev/null && echo ok || echo -)"
 done
 printf "  skills:"; for d in /root/.claude/skills/*/; do d=$(basename "$d"); case $d in synced|session-start-hook) ;; *) printf " %s" "$d";; esac; done; echo
