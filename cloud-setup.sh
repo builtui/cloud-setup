@@ -39,6 +39,10 @@ echo "== cloud-setup start $(date -Is) =="
 : "${CF_CLI_VERSION:=1.0.0-rc.4}"
 : "${WITH_EMULATE:=0}"        # vercel-labs/emulate: lokale Stellvertreter für GitHub, Resend, S3, Stripe …
 : "${WITH_REACT_DOCTOR:=0}"   # react-doctor: Prüfung für React-Code (nur React-Projekte)
+: "${WITH_HCLOUD:=0}"         # Hetzner-CLI hcloud (Token als HCLOUD_TOKEN), Prüfsumme wird geprüft
+: "${HCLOUD_VERSION:=}"       # leer = neueste Version
+: "${WITH_QUITT:=0}"          # Quitt-CLI (Rechnungen/Belege über die Agenten-Schnittstelle)
+: "${QUITT_URL:=}"            # Basis-URL der Quitt-Instanz
 : "${EXPLORE_MODEL:=haiku}"   # Modell des Such-Helfers Explore (leer = Standard, also das Hauptmodell)
 : "${WITH_SKILLS:=1}"         # Skills aus GitHub nach ~/.claude/skills holen
 : "${WITH_REPO_HOOKS:=1}"     # <repo>/.claude/cloud-setup.sh jedes Repos ausführen
@@ -636,6 +640,41 @@ EOF
   chmod +x /usr/local/bin/cloud-preview
 fi
 
+# 4e) Hetzner-CLI hcloud (optional) -------------------------------------------
+if [ "$WITH_HCLOUD" = 1 ] && ! command -v hcloud >/dev/null; then
+  step "Hetzner-CLI hcloud"
+  base="https://github.com/hetznercloud/cli/releases"
+  [ -n "$HCLOUD_VERSION" ] && base="$base/download/v$HCLOUD_VERSION" || base="$base/latest/download"
+  tmp=$(mktemp -d)
+  if curl -fsSL -m 120 -o "$tmp/h.tgz" "$base/hcloud-linux-amd64.tar.gz" \
+     && curl -fsSL -m 30 -o "$tmp/sums" "$base/checksums.txt" \
+     && (cd "$tmp" && grep ' hcloud-linux-amd64.tar.gz$' sums | sed 's/hcloud-linux-amd64.tar.gz$/h.tgz/' | sha256sum -c --quiet) \
+     && tar xzf "$tmp/h.tgz" -C "$tmp" hcloud; then
+    install -m 755 "$tmp/hcloud" /usr/local/bin/hcloud
+  else warn "hcloud nicht installiert (Download oder Prüfsumme)"; fi
+  rm -rf "$tmp"
+fi
+
+# 4f) Quitt (optional): Rechnungen, Belege, Steuer über die Agenten-Schnittstelle -
+# Die CLI liefert Quitt selbst aus ($QUITT_URL/cli/quitt.mjs). Der Wrapper holt den
+# Token aus QUITT_TOKEN oder per op aus dem Tresor (QUITT_TOKEN_REF).
+if [ "$WITH_QUITT" = 1 ]; then
+  step "Quitt-CLI"
+  if [ -z "$QUITT_URL" ]; then warn "WITH_QUITT=1, aber QUITT_URL fehlt"
+  elif curl -fsSL -m 30 -o /usr/local/lib/quitt.mjs "$QUITT_URL/cli/quitt.mjs"; then
+    cat > /usr/local/bin/quitt <<EOF
+#!/bin/bash
+# quitt tools [filter] | quitt <tool> ['{json}'] [--file pfad] [--out pfad]
+export QUITT_URL="\${QUITT_URL:-$QUITT_URL}"
+if [ -z "\${QUITT_TOKEN:-}" ] && [ -n "\${QUITT_TOKEN_REF:-}" ] && command -v op >/dev/null; then
+  QUITT_TOKEN=\$(op read "\$QUITT_TOKEN_REF" 2>/dev/null) && export QUITT_TOKEN
+fi
+exec node /usr/local/lib/quitt.mjs "\$@"
+EOF
+    chmod +x /usr/local/bin/quitt
+  else warn "Quitt-CLI nicht geladen ($QUITT_URL gesperrt?)"; fi
+fi
+
 # 4d) Such-Helfer Explore auf einem günstigen Modell -------------------------
 # Der eingebaute Explore-Agent läuft sonst auf dem Hauptmodell. Eine Datei gleichen
 # Namens in ~/.claude/agents ersetzt ihn (getestet: läuft dann auf haiku).
@@ -704,6 +743,9 @@ fi
 {
   [ "$WITH_CF_CLI" = 1 ] && printf '%s\n' '- Cloudflare: `cf` (Beta) für die ganze API; Befehle mit `cf cli search "<aufgabe>"` finden.' \
     '  Token als `CLOUDFLARE_API_TOKEN` aus der Umgebung, nie im Befehl.'
+  [ "$WITH_HCLOUD" = 1 ] && printf '%s\n' '- Hetzner: `hcloud` (Token als `HCLOUD_TOKEN` aus der Umgebung oder per `op read`).'
+  [ "$WITH_QUITT" = 1 ] && printf '%s\n' '- Quitt: `quitt tools [filter]`, dann `quitt <tool> '"'"'{json}'"'"'`. Antwortet es `needs_approval`, den Link' \
+    '  an den Nutzer geben; nichts selbst umgehen.'
   [ "$WITH_EMULATE" = 1 ] && printf '%s\n' '- `emulate` (vercel-labs): lokale Stellvertreter für GitHub, Resend, S3, Stripe u. a.' \
     '  (`emulate list`, `emulate start`). Für Tests von Mails und Abläufen statt echter Konten.'
   [ "$WITH_REACT_DOCTOR" = 1 ] && printf '%s\n' '- React-Projekte: vor Abschluss `react-doctor <app> --no-telemetry --no-supply-chain -y`;' \
@@ -924,7 +966,7 @@ step "Projektspezifische Schritte"
 
 # 8) Zusammenfassung ----------------------------------------------------------
 step "Fertig"
-for t in node php composer python3 uv go cargo docker psql mysql redis-server gh agent-browser vercel fd fzf shellcheck sqlite3 op tailscale cf emulate react-doctor cloud-services cloud-warm cloud-install cloud-doctor cloud-preview; do
+for t in node php composer python3 uv go cargo docker psql mysql redis-server gh agent-browser vercel fd fzf shellcheck sqlite3 op tailscale cf hcloud quitt emulate react-doctor cloud-services cloud-warm cloud-install cloud-doctor cloud-preview; do
   printf "  %-14s %s\n" "$t" "$(command -v $t >/dev/null && echo ok || echo -)"
 done
 printf "  skills:"; for d in /root/.claude/skills/*/; do d=$(basename "$d"); case $d in synced|session-start-hook) ;; *) printf " %s" "$d";; esac; done; echo

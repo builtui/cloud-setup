@@ -162,6 +162,9 @@ noch das Project-Eigene.
 | `WITH_EMULATE=1` | vercel-labs/emulate: lokale Stellvertreter für GitHub, Google, Slack, Vercel u. a. für Tests ohne echte Konten | aus, pro Projekt |
 | `WITH_REACT_DOCTOR=1` | react-doctor für React-Projekte, immer mit `--no-telemetry --no-supply-chain` (sonst gehen Daten an den Anbieter) | aus, pro Projekt |
 
+| `WITH_HCLOUD=1` | Hetzner-CLI `hcloud` aus dem GitHub-Release, mit Prüfsumme (`HCLOUD_VERSION`, leer = neueste). Token als `HCLOUD_TOKEN` | aus |
+| `WITH_QUITT=1` + `QUITT_URL` | Kommandozeile der Quitt-Agentenschnittstelle (`$QUITT_URL/cli/quitt.mjs`). Token aus `QUITT_TOKEN` oder per `op read "$QUITT_TOKEN_REF"` | aus |
+
 Nur die eingeschalteten Werkzeuge bekommen eine Zeile in `~/.claude/CLAUDE.md`.
 
 ## Orvel (optional)
