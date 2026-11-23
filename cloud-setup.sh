@@ -40,6 +40,8 @@ echo "== cloud-setup start $(date -Is) =="
 : "${LOCAL_CI:=1}"            # Sessions prüfen in der VM statt über GitHub Actions
 : "${WITH_RULES:=1}"          # Grundregeln (Stack, Design, Arbeitsweise, additiv, Tests nach Gewicht)
 : "${WITH_ONBOARDING:=1}"     # Ersteinrichtung pro Projekt (cloud-doctor, Skill projekt-einrichtung)
+: "${WITH_WISSEN:=1}"         # Hinweis + Skill für gemeinsames Wissen (Ordner wissen/ im Repo WISSEN_REPO)
+: "${WISSEN_REPO:=builtui/ops}"  # privates Repo, muss am Project hängen
 
 # Zusätzliche apt-Pakete (Leerzeichen-getrennt)
 APT_EXTRA="${APT_EXTRA:-}"
@@ -724,6 +726,71 @@ rule = """- CI läuft hier in der VM, nicht auf GitHub (Actions-Minuten sind kna
 s = s.replace("<!-- cloud-setup:end -->", rule + "<!-- cloud-setup:end -->", 1)
 open(p, "w").write(s)
 PY
+fi
+
+# 5b) Gemeinsames Wissen in einem privaten Repo (WISSEN_REPO, muss am Project hängen) -
+
+if [ "$WITH_WISSEN" = 1 ]; then
+  python3 - <<'PY'
+p = "/root/.claude/CLAUDE.md"
+s = open(p).read()
+rule = """
+## Gemeinsames Wissen (Repo __WREPO__)
+- Liegt `__WDIR__/wissen/INDEX.md` neben den Repos (meist `/home/user/__WDIR__`), dort nachschlagen, bevor du den Nutzer
+  etwas über Arbeitsweise, Stack, Projekte oder Vorgehen fragst oder neu recherchierst: Index lesen (2 KB),
+  dem Pfad folgen, eine Datei lesen. Nie den ganzen Ordner laden. Skill `wissen` erklärt Lesen und Pflegen.
+- Was du lernst und was über dein Project hinaus gilt, trägst du am Ende der Aufgabe dort ein (PR, selbst mergen).
+- Worte des Nutzers und die Repo-Regeln gehen vor. Fehlt das Repo, ohne es weiterarbeiten.
+"""
+s = s.replace("<!-- cloud-setup:end -->", rule + "<!-- cloud-setup:end -->", 1)
+open(p, "w").write(s)
+PY
+  mkdir -p /root/.claude/skills/wissen
+  cat > /root/.claude/skills/wissen/SKILL.md <<'EOF'
+---
+name: wissen
+description: Look up or update the user's shared knowledge in the __WDIR__ repo (wissen/). Use before asking the user about their way of working, stack, projects or procedures, and at the end of a task when you learned something that holds beyond this project.
+---
+
+# Gemeinsames Wissen (__WREPO__)
+
+Das Repo liegt neben den anderen Repos der Session (meist `/home/user/__WDIR__`, auf dem Mac `~/dev/__WDIR__`).
+Fehlt es, hängt es nicht am Project: in einer Zeile erwähnen und ohne weiterarbeiten.
+
+## Lesen (wenige Tokens)
+
+1. `__WDIR__/wissen/INDEX.md` lesen. Eine Zeile pro Frage, mit Pfad.
+2. Nur die eine Datei lesen, auf die der Pfad zeigt (höchstens 4 KB). Hat ein Ordner eine `INDEX.md`, zuerst die.
+3. Passt nichts: `rg -il "<begriff>" __WDIR__/wissen` und gezielt lesen. Nie den ganzen Ordner laden.
+
+Wissen hier ist Hintergrund. Die Worte des Nutzers im Thread und die Regeln des Repos gehen vor.
+Widerspricht eine Datei dem, was du gerade sicher feststellst, korrigiere die Datei (siehe unten).
+
+## Pflegen (der Nutzer pflegt es nicht, die Sessions tun es)
+
+Eintragen am Ende einer Aufgabe, wenn du etwas gelernt hast, das über dieses Project hinaus gilt:
+eine abstrakte Korrektur des Nutzers, ein geprüfter Fakt über Werkzeuge, Umgebung oder Dienste, ein neues
+oder umbenanntes Projekt, ein geänderter Stack, eine Lektion aus einem Fehler. Projektinternes bleibt im Projekt.
+
+1. Passende Datei über den Index finden und dort ändern. Veraltetes ersetzen oder löschen, nicht anhängen.
+2. Erste Zeile `Stand: JJJJ-MM-TT` auf heute setzen. Fakten mit Quelle (Thread, PR, Datei) und Datum.
+3. Höchstens 4 KB pro Datei; sonst Ordner mit eigener `INDEX.md`. Neue Datei im übergeordneten Index eintragen,
+   `wissen/INDEX.md` bleibt unter 2 KB.
+4. `bash __WDIR__/scripts/check.sh` ausführen, bis es `ok` meldet.
+5. Branch, Commit, PR gegen `main`, selbst mergen. Im Bericht eine Zeile: was du in __WDIR__ geändert hast.
+
+Nie eintragen: Passwörter, Tokens, Schlüssel, Konto-IDs oder andere Zugangswerte (nur wo etwas liegt);
+Kundendaten, Vertrauliches, Privates. Meldet `check.sh` einen Stand über 120 Tage in einer Datei, die du nutzt:
+prüfen, korrigieren, Stand neu setzen.
+
+## Postfach
+
+Braucht ein anderes Project etwas von dir oder du von ihm: Issue in __WREPO__ mit Label `an:<project>`
+(siehe `__WDIR__/postfach/README.md`). In der Cloud gehen `gh issue` und `gh pr` nicht; die GitHub-Werkzeuge der Session nutzen.
+EOF
+  # Repo-Namen einsetzen (konfigurierbar über WISSEN_REPO)
+  wdir=$(basename "$WISSEN_REPO")
+  sed -i "s#__WREPO__#$WISSEN_REPO#g; s#__WDIR__#$wdir#g" /root/.claude/CLAUDE.md /root/.claude/skills/wissen/SKILL.md
 fi
 
 # 6) Projekt-Hooks aus den Repos ----------------------------------------------

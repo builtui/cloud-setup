@@ -140,6 +140,13 @@ Schlüssel im Vault liegt. Braucht Netzwerk *Full* (oder `pkgs.tailscale.com`, `
 die Headscale-Adresse und `*.1password.com` freigeben). Die Zugriffsregel „Cloud-Geräte erreichen nichts“
 gehört in Headscale.
 
+## Gemeinsames Wissen (`WITH_WISSEN=1`, Standard an)
+
+Schreibt einen Hinweis in `~/.claude/CLAUDE.md` und den Skill `wissen`: Sessions schlagen in `ops/wissen/INDEX.md`
+nach, bevor sie fragen oder neu recherchieren, und tragen am Ende ein, was über ihr Project hinaus gilt.
+Issues mit Label `an:<project>` dienen als Postfach zwischen Projects. **Das private Repo (`WISSEN_REPO`, Standard `builtui/ops`) muss an
+jedes Project gehängt werden**, sonst arbeitet die Session ohne es weiter (das Setup kann private Repos nicht klonen).
+
 ## Orvel (optional)
 
 `WITH_ORVEL=1 ORVEL_CLI_URL=<basis-url> bash <(curl …)` installiert die Orvel-CLI (mit SHA-256-Prüfung), den Wrapper
