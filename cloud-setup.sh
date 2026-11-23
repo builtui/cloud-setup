@@ -36,7 +36,8 @@ echo "== cloud-setup start $(date -Is) =="
 : "${WITH_AGENT_BROWSER:=1}"  # vercel-labs/agent-browser (Browser-CLI für Agenten)
 : "${WITH_VERCEL_CLI:=0}"     # Vercel CLI (nur bei Vercel-Deployments sinnvoll)
 : "${WITH_SKILLS:=1}"         # Skills aus GitHub nach ~/.claude/skills holen
-: "${WITH_REPO_HOOKS:=1}"     # <repo>/.claude/cloud-setup.sh jedes Repos ausführen
+: "${WITH_REPO_HOOKS:=1}"
+: "${LOCAL_CI:=1}"            # Sessions prüfen in der VM statt über GitHub Actions     # <repo>/.claude/cloud-setup.sh jedes Repos ausführen
 
 # Zusätzliche apt-Pakete (Leerzeichen-getrennt)
 APT_EXTRA="${APT_EXTRA:-}"
@@ -388,6 +389,23 @@ cat >> /root/.claude/CLAUDE.md <<'EOF'
 - Log des Setups: /var/log/cloud-setup.log
 <!-- cloud-setup:end -->
 EOF
+if [ "$LOCAL_CI" = 1 ]; then
+  # Regel in den Block einfügen (vor dem End-Marker)
+  python3 - <<'PY'
+p = "/root/.claude/CLAUDE.md"
+s = open(p).read()
+rule = """- CI läuft hier in der VM, nicht auf GitHub (Actions-Minuten sind knapp):
+  Lint, Typecheck, Tests, Builds und Playwright in der Session ausführen, bevor gepusht wird.
+  Hat das Repo `.github/workflows/`, deren `run:`-Schritte lokal nachstellen (Dienste per
+  `cloud-services` oder `docker run`). Keine neuen Workflows anlegen, keine Workflows per
+  `workflow_dispatch` oder Re-Run starten und nicht auf Actions-Ergebnisse warten, außer der
+  Nutzer verlangt es ausdrücklich oder es geht nachweislich nur dort (z. B. andere Plattform).
+  Im Bericht nennen, was lokal geprüft wurde.
+"""
+s = s.replace("<!-- cloud-setup:end -->", rule + "<!-- cloud-setup:end -->", 1)
+open(p, "w").write(s)
+PY
+fi
 
 # 6) Projekt-Hooks aus den Repos ----------------------------------------------
 # Das Setup-Skript startet im Verzeichnis über den geklonten Repos.

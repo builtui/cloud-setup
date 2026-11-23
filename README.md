@@ -86,6 +86,17 @@ Sekunden aus dem Cache. Projekt-Threads führen keine Repo-Hooks aus, deshalb st
 Playwright lädt Browser von `cdn.playwright.dev`. Das ist im Netzwerk-Level *Limited* nicht freigegeben: entweder *Full*
 nutzen oder die Domain unter „Allowed domains“ eintragen.
 
+## CI in der VM statt auf GitHub
+
+Standard (`LOCAL_CI=1`): Das Skript schreibt in `~/.claude/CLAUDE.md` die Regel, dass Sessions Lint, Typecheck, Tests,
+Builds und Playwright selbst in der VM ausführen, die `run:`-Schritte vorhandener Workflows lokal nachstellen, keine
+neuen Workflows anlegen und keine Actions-Läufe auslösen oder abwarten, außer es wird ausdrücklich verlangt.
+Ausschalten mit `LOCAL_CI=0 bash <(curl …)`.
+
+Die VM hat dafür alles Nötige: 4 vCPU/16 GB, Docker (auch für Service-Container wie Mailpit), PHP/Composer, Node,
+Chrome und Playwright, MariaDB/Postgres/Redis über `cloud-services`. `act` (GitHub-Workflows lokal in Docker) ist
+nicht eingebaut und nicht getestet.
+
 ## Orvel (optional)
 
 `WITH_ORVEL=1 ORVEL_CLI_URL=<basis-url> bash <(curl …)` installiert die Orvel-CLI (mit SHA-256-Prüfung), den Wrapper
