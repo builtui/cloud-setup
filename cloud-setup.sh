@@ -493,7 +493,8 @@ Antworten später einarbeiten.
 1. Wofür und für wen ist das Projekt (eigenes Produkt, Kundenprojekt, Website, Werkzeug)? Gibt es schon Nutzer?
    (Mit Nutzern gilt für riskante Änderungen die volle Suite.)
 2. Wer merged? Empfehlung: Thread merged eigene PRs nach grüner lokaler Prüfung selbst.
-3. Was ist live (Branch, Deploy-Ziel), und darf ein Thread davon etwas ohne Rückfrage? Empfehlung: nichts.
+3. Was ist ein laufendes Kundensystem oder Produktion? Nur dort, bei endgültigem Datenverlust oder Kosten
+   fragt ein Thread vorher; Staging zählt nicht als live.
 4. Wie sieht der Nutzer Ergebnisse aus der Cloud? Screenshots im Repo / Staging-URL / Remote Control auf dem Mac.
 5. Nur bei UI: Was ist die Vorlage oder das Designsystem, und was wird übernommen (Struktur, Stil, Wirkung)?
 6. Nur wenn Orvel eingerichtet ist (`orvel-todo`): In welche Liste kommen To-dos aus diesem Projekt?
@@ -677,6 +678,11 @@ Arbeitsweise
 - Korrekturen so eng umsetzen, wie sie gesagt wurden. Feedback zu einer Arbeit wird keine allgemeine
   Regel, außer der Nutzer sagt es. Nur ändern, was verlangt ist; anderes im Bericht unter
   „Außerdem geändert“ nennen.
+- Selbst handeln statt fragen (Wunsch des Nutzers): eigene PRs nach grüner lokaler Prüfung selbst
+  mergen, Befehle selbst ausführen. Rückfragen nur, wenn etwas Daten endgültig löscht, ein laufendes
+  Kundensystem trifft oder Geld kostet; dann in einfacher Sprache mit Empfehlung.
+- Keine neuen Freigabe-Regeln („nur mit Ja des Nutzers“) in Repos oder Anweisungen schreiben, die der
+  Nutzer nicht selbst so gesagt hat.
 - Vor jedem Anlegen (Repo, Ordner, Version, Datei, Umgebung) nach Vorhandenem suchen und es nennen.
 - Langes Feedback (Diktat, viele Punkte) zuerst als nummerierte Liste ins Repo schreiben
   (`feedback/<datum>.md`) und am Ende jeden Punkt abhaken.
