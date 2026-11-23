@@ -37,7 +37,8 @@ echo "== cloud-setup start $(date -Is) =="
 : "${WITH_VERCEL_CLI:=0}"     # Vercel CLI (nur bei Vercel-Deployments sinnvoll)
 : "${WITH_SKILLS:=1}"         # Skills aus GitHub nach ~/.claude/skills holen
 : "${WITH_REPO_HOOKS:=1}"
-: "${LOCAL_CI:=1}"            # Sessions prüfen in der VM statt über GitHub Actions     # <repo>/.claude/cloud-setup.sh jedes Repos ausführen
+: "${LOCAL_CI:=1}"            # Sessions prüfen in der VM statt über GitHub Actions
+: "${WITH_RULES:=1}"          # Grundregeln (Stack, Design, additiv, Tests nach Gewicht)     # <repo>/.claude/cloud-setup.sh jedes Repos ausführen
 
 # Zusätzliche apt-Pakete (Leerzeichen-getrennt)
 APT_EXTRA="${APT_EXTRA:-}"
@@ -58,7 +59,9 @@ NPM_EXTRA="${NPM_EXTRA:-}"
 #   mattpocock/skills:grill-me,diagnosing-bugs,tdd                      (Engineering)
 #   humanlayer/skills:show-me,improve-claude-md
 #   vercel-labs/portless:portless
-SKILL_SOURCES="${SKILL_SOURCES:-vercel-labs/agent-skills:web-design-guidelines emilkowalski/skills:emil-design-eng}"
+# Design-Skills, auf die sich die Grundregeln beziehen:
+DESIGN_SKILLS="emilkowalski/skills:emil-design-eng,apple-design jakubkrehel/skills:better-interface,better-ui,better-layout,better-typography,better-colors,better-accessibility,better-writing,better-motion leonxlnx/taste-skill:taste-skill"
+SKILL_SOURCES="${SKILL_SOURCES:-vercel-labs/agent-skills:web-design-guidelines $DESIGN_SKILLS}"
 # -----------------------------------------------------------------------------
 
 export DEBIAN_FRONTEND=noninteractive
@@ -230,6 +233,14 @@ Only use `orvel-todo add` and `orvel-todo lists`: do not move, change or complet
 EOF
 fi
 
+# Skills, die nur auf Zuruf laden sollen (Claude ruft sie nicht selbst auf)
+SKILLS_MANUAL="${SKILLS_MANUAL:-taste-skill}"
+for m in $SKILLS_MANUAL; do
+  f="/root/.claude/skills/$m/SKILL.md"
+  [ -f "$f" ] && ! grep -q '^disable-model-invocation:' "$f" && \
+    sed -i '0,/^name:/s//disable-model-invocation: true\nname:/' "$f"
+done
+
 # agent-browser bringt seine eigene, versionsgleiche Skill-Doku mit
 if [ "$WITH_AGENT_BROWSER" = 1 ] && command -v agent-browser >/dev/null; then
   mkdir -p /root/.claude/skills/agent-browser
@@ -389,6 +400,48 @@ cat >> /root/.claude/CLAUDE.md <<'EOF'
 - Log des Setups: /var/log/cloud-setup.log
 <!-- cloud-setup:end -->
 EOF
+if [ "$WITH_RULES" = 1 ]; then
+  python3 - <<'PY'
+p = "/root/.claude/CLAUDE.md"
+s = open(p).read()
+rule = """
+## Grundregeln (gelten in jeder Session; Vorgaben des Nutzers und des Repos gehen vor)
+
+Stack
+- Webprojekte mit Tailwind CSS. Wo React sinnvoll ist: shadcn/ui auf Tailwind, Standardkomponenten
+  aus shadcn und seinen Registries statt selbst gebauter Grundkomponenten.
+- Mit Tailwind immer `@shadcn/lint` (npm) einrichten und vor Abschluss laufen lassen.
+
+Design
+- Bei Design- und UI-Arbeit die passenden Design-Skills laden: `apple-design`, `emil-design-eng`
+  und die `better-*`-Familie (`better-interface` für den Gesamtblick).
+- Der Taste-Skill (`design-taste-frontend`) lädt nur auf Zuruf (`/design-taste-frontend`) und gilt dann als Anregung, nie als Vorschrift.
+  Bei Widerspruch gehen die anderen Skills, die Projektvorgaben und Vorlagen des Nutzers vor.
+
+Additiv statt destruktiv
+- Größere Iterationen (neues Design, neues Konzept, Umbau) als neue Version anlegen (Ordner oder
+  Branch/Commit); die vorige bleibt unverändert und lauffähig. Nichts löschen oder überschreiben,
+  was nicht ausdrücklich ersetzt werden soll.
+- Kleine Änderungen (Texte, einzelne Werte, Fehlerkorrekturen) direkt ändern; Git versioniert.
+
+Tests nach Gewicht der Änderung
+- Vor dem Start einordnen und den Prüfumfang danach wählen:
+  - Klein (wenige Zeilen, Text, Konfiguration, kein neues Verhalten): höchstens der eine Check,
+    der die Stelle trifft, oft reichen Lint und Typecheck.
+  - Mittel (ein Feature, ein Fehler, ein Modul): nur die Tests des betroffenen Pakets oder der
+    betroffenen Specs (z. B. `pnpm --filter <paket> test`, `vitest run <pfad>`, `playwright test <spec>`).
+  - Groß (gemeinsame Mechanik, Datenmodell, Sicherheit, Deployment, Release) oder ein laufendes
+    Produkt mit Nutzern: volle Suite.
+- Die volle Suite höchstens einmal am Ende eines Arbeitsschritts, nicht nach jeder Einheit. Befunde
+  gesammelt beheben, dann ein neuer Lauf.
+- Diese Stufen gehen Vorgaben aus Skills und Playbooks vor (z. B. pstack „verify after every unit“):
+  gemeint ist dort der gezielte, billige Check, nicht die volle Suite.
+- Lange Läufe im Hintergrund mit Log-Datei, nur deren Ende lesen.
+"""
+s = s.replace("<!-- cloud-setup:end -->", rule + "<!-- cloud-setup:end -->", 1)
+open(p, "w").write(s)
+PY
+fi
 if [ "$LOCAL_CI" = 1 ]; then
   # Regel in den Block einfügen (vor dem End-Marker)
   python3 - <<'PY'

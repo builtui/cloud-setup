@@ -64,7 +64,7 @@ Drei Wege, alle bestätigt:
    abgelegte Skills sofort.
 
 Empfehlung: Basis klein halten (jede Skill-Beschreibung kostet in jeder Session Kontext). Standard in `cloud-setup.sh`:
-`agent-browser`, `web-design-guidelines`, `emil-design-eng`. Pro Umgebung per `SKILL_SOURCES` erweitern. Kandidaten
+`agent-browser`, `web-design-guidelines` und die Design-Skills (siehe Grundregeln). Pro Umgebung per `SKILL_SOURCES` erweitern. Kandidaten
 aus der Link Library (hoch bewertet, alle getestet klonbar): `emilkowalski/skills`, `mattpocock/skills`,
 `humanlayer/skills`, pstack (`cursor/plugins` → `pstack/skills`, Skills hängen voneinander ab, besser als Plugin).
 
@@ -85,6 +85,17 @@ Sekunden aus dem Cache. Projekt-Threads führen keine Repo-Hooks aus, deshalb st
 
 Playwright lädt Browser von `cdn.playwright.dev`. Das ist im Netzwerk-Level *Limited* nicht freigegeben: entweder *Full*
 nutzen oder die Domain unter „Allowed domains“ eintragen.
+
+## Grundregeln für jede Session
+
+Standard (`WITH_RULES=1`): Das Skript schreibt Grundregeln in `~/.claude/CLAUDE.md`: Tailwind für Webprojekte,
+shadcn/ui wo React sinnvoll ist, `@shadcn/lint` mit Tailwind, Design-Skills (`apple-design`, `emil-design-eng`,
+`better-*`), additiv statt destruktiv arbeiten, Tests nach Gewicht der Änderung statt immer der vollen Suite.
+Vorgaben des Nutzers und des Repos gehen vor. Ausschalten mit `WITH_RULES=0`.
+
+Die Design-Skills holt das Skript aus `emilkowalski/skills`, `jakubkrehel/skills` und `leonxlnx/taste-skill`.
+Der Taste-Skill wird mit `disable-model-invocation: true` installiert und lädt nur auf Zuruf
+(Liste in `SKILLS_MANUAL`).
 
 ## CI in der VM statt auf GitHub
 
