@@ -614,8 +614,9 @@ if ! ts status >/dev/null 2>&1; then
 fi
 ts serve reset >/dev/null 2>&1 || true
 ts serve --bg --http=80 "$port" >/dev/null || die "Freigabe fehlgeschlagen, Log: /tmp/tailscaled.log"
-read -r host ip < <(ts status --json | python3 -c 'import json,sys; s=json.load(sys.stdin)["Self"]; print(s["DNSName"].rstrip("."), (s.get("TailscaleIPs") or ["?"])[0])')
-echo "cloud-preview: http://$host (oder http://$ip), Port $port, nur aus deinem Tailscale-Netz"
+# serve antwortet nur auf den Gerätenamen, die 100.64.x.x-IP liefert 404.
+host=$(ts status --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))')
+echo "cloud-preview: http://$host (Port $port, nur aus deinem Tailscale-Netz)"
 EOF
   chmod +x /usr/local/bin/cloud-preview
 fi

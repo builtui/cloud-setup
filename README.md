@@ -135,7 +135,7 @@ Geräte im privaten Tailscale-Netz erreichbar:
    oder per `op` (`OP_SERVICE_ACCOUNT_TOKEN`): Standard ist der Eintrag „Headscale Cloud-Schlüssel“ im Tresor
    „Cloud Basis“ (`op item get`, weil `op read` kein „ü“ im Verweis annimmt); eigener Verweis in `TS_AUTHKEY_REF`, nur ASCII.
 3. `tailscale serve --http=80` gibt den Port per http frei (Headscale stellt keine HTTPS-Zertifikate aus) und nennt
-   die Adresse, `http://<gerät>.<magicdns-domain>` oder die 100.64.x.x-IP. `cloud-preview stop` meldet ab.
+   die Adresse `http://<gerät>.<magicdns-domain>` (die 100.64.x.x-IP liefert 404). `cloud-preview stop` meldet ab.
 
 Ohne `TS_LOGIN_SERVER` bricht der Befehl mit klarer Meldung ab. Getestet am 23.11.2026 mit Headscale unter
 `vpn.undraft.de`. Braucht Netzwerk *Full* (oder `pkgs.tailscale.com`, `cache.agilebits.com`,
