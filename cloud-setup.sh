@@ -50,6 +50,12 @@ NPM_EXTRA="${NPM_EXTRA:-}"
 : "${WITH_ORVEL:=0}"
 : "${ORVEL_CLI_URL:=}"
 
+# Vorschau aus der Cloud über ein privates Tailscale-Netz (Headscale), siehe 4c
+: "${WITH_TAILSCALE:=0}"
+: "${TAILSCALE_VERSION:=}"    # leer = aktuelle stabile Version beim Bau
+: "${WITH_1PASSWORD:=0}"      # 1Password-CLI (op); bei WITH_TAILSCALE=1 immer dabei
+: "${OP_VERSION:=2.42.0}"
+
 # Skills: "<github-owner/repo>:<skill>[,<skill>...]"  (Leerzeichen-getrennt)
 # Öffentliche Repos funktionieren immer. Private Repos nur, wenn sie an die
 # Session angehängt sind -> eigene Skills besser auf claude.ai aktivieren.
@@ -532,6 +538,76 @@ Offen: …
 EOF
 fi
 
+# 4c) Vorschau über Tailscale/Headscale (optional) und 1Password-CLI ---------
+# cloud-preview <port> macht einen Dev-Server der Session nur für die eigenen
+# Geräte im privaten Tailscale-Netz erreichbar (Headscale als Steuerserver).
+# Der Schlüssel kommt erst in der Session: aus TS_AUTHKEY oder per op aus dem Vault.
+if [ "$WITH_TAILSCALE" = 1 ] || [ "$WITH_1PASSWORD" = 1 ]; then
+  step "1Password-CLI (op $OP_VERSION)"
+  if ! command -v op >/dev/null; then
+    tmp=$(mktemp -d)
+    if curl -fsSL -m 60 -o "$tmp/op.zip" "https://cache.agilebits.com/dist/1P/op2/pkg/v$OP_VERSION/op_linux_amd64_v$OP_VERSION.zip" \
+       && unzip -qo "$tmp/op.zip" op -d /usr/local/bin; then chmod +x /usr/local/bin/op
+    else warn "op nicht installiert (cache.agilebits.com unter Limited gesperrt?)"; fi
+    rm -rf "$tmp"
+  fi
+fi
+if [ "$WITH_TAILSCALE" = 1 ]; then
+  step "Tailscale (statisch) und cloud-preview"
+  if ! command -v tailscaled >/dev/null; then
+    v="$TAILSCALE_VERSION"
+    [ -z "$v" ] && v=$(curl -fsSL -m 20 'https://pkgs.tailscale.com/stable/?mode=json' | python3 -c 'import json,sys; print(json.load(sys.stdin)["TarballsVersion"])' 2>/dev/null)
+    tmp=$(mktemp -d)
+    if [ -n "$v" ] && curl -fsSL -m 120 "https://pkgs.tailscale.com/stable/tailscale_${v}_amd64.tgz" | tar xz -C "$tmp"; then
+      install -m 755 "$tmp"/tailscale_*/tailscale "$tmp"/tailscale_*/tailscaled /usr/local/bin/
+    else warn "Tailscale nicht installiert (pkgs.tailscale.com unter Limited gesperrt?)"; fi
+    rm -rf "$tmp"
+  fi
+  cat > /usr/local/bin/cloud-preview <<'EOF'
+#!/bin/bash
+# cloud-preview <port> [name]   Port nur im eigenen Tailscale-Netz freigeben
+# cloud-preview stop            Freigabe beenden, Gerät abmelden
+# cloud-preview status
+# Braucht: TS_LOGIN_SERVER (Headscale-Adresse, kein Geheimnis) und einen Schlüssel
+# aus TS_AUTHKEY oder per op (OP_SERVICE_ACCOUNT_TOKEN, Verweis TS_AUTHKEY_REF).
+set -euo pipefail
+SOCK=/run/tailscale.sock; ts() { tailscale --socket="$SOCK" "$@"; }
+die() { echo "cloud-preview: $*" >&2; exit 1; }
+case "${1:-}" in ""|-h|--help) sed -n '2,6p' "$0"; exit 0 ;; esac
+command -v tailscaled >/dev/null || die "Tailscale fehlt (WITH_TAILSCALE=1 im Setup-Feld, Netzwerk Full)"
+case "${1:-}" in
+  status) ts status 2>/dev/null || echo "nicht verbunden"; ts serve status 2>/dev/null || true; exit 0 ;;
+  stop) ts serve reset 2>/dev/null || true; ts logout 2>/dev/null || true
+        pkill -x tailscaled 2>/dev/null || true; echo "cloud-preview: beendet"; exit 0 ;;
+esac
+port="$1"; [[ "$port" =~ ^[0-9]+$ ]] || die "Port als Zahl angeben, z. B. cloud-preview 5173"
+[ -n "${TS_LOGIN_SERVER:-}" ] || die "TS_LOGIN_SERVER fehlt (Adresse des Headscale-Servers als Umgebungsvariable). Ohne Headscale gibt es noch keine Vorschau."
+if ! pgrep -x tailscaled >/dev/null; then
+  nohup tailscaled --tun=userspace-networking --state=mem: --socket="$SOCK" \
+    --statedir=/tmp/tailscale >/tmp/tailscaled.log 2>&1 &
+  for _ in $(seq 20); do [ -S "$SOCK" ] && break; sleep 0.5; done
+fi
+if ! ts status >/dev/null 2>&1; then
+  key="${TS_AUTHKEY:-}"
+  if [ -z "$key" ]; then
+    command -v op >/dev/null || die "kein TS_AUTHKEY und keine 1Password-CLI"
+    [ -n "${OP_SERVICE_ACCOUNT_TOKEN:-}" ] || die "kein TS_AUTHKEY und kein OP_SERVICE_ACCOUNT_TOKEN in der Umgebung"
+    key=$(op read "${TS_AUTHKEY_REF:-op://Cloud Basis/Headscale Cloud-Schlüssel/credential}" 2>/dev/null) \
+      || die "Schlüssel nicht lesbar (${TS_AUTHKEY_REF:-op://Cloud Basis/Headscale Cloud-Schlüssel/credential})"
+  fi
+  repo=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
+  name="${2:-cloud-$repo-$(head -c4 /dev/urandom | od -An -tx1 | tr -d ' \n')}"
+  ts up --login-server="$TS_LOGIN_SERVER" --authkey="$key" --hostname="$name" \
+     --advertise-tags=tag:cloud --accept-dns=false >/dev/null || die "Anmeldung fehlgeschlagen, Log: /tmp/tailscaled.log"
+  unset key
+fi
+ts serve --bg "$port" >/dev/null
+host=$(ts status --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))')
+echo "cloud-preview: https://$host (Port $port, nur aus deinem Tailscale-Netz)"
+EOF
+  chmod +x /usr/local/bin/cloud-preview
+fi
+
 # 5) Persönliche Hinweise für Claude (~/.claude/CLAUDE.md) --------------------
 step "/root/.claude/CLAUDE.md schreiben"
 mkdir -p /root/.claude
@@ -557,6 +633,9 @@ cat >> /root/.claude/CLAUDE.md <<'EOF'
   `gh pr`/`gh issue` (GraphQL) sind gesperrt, dafür die eingebauten GitHub-Tools nutzen.
 - Andere Node-Versionen: /opt/node20/bin bzw. /opt/node21/bin vor PATH setzen.
 - Log des Setups: /var/log/cloud-setup.log
+- Vorschau für den Nutzer (nur wenn `cloud-preview` installiert ist): Dev-Server starten, dann
+  `cloud-preview <port>`; die Adresse ist nur aus seinem Tailscale-Netz erreichbar. Beim ersten Mal
+  in einem Projekt sein ausdrückliches Ja abwarten. Am Ende `cloud-preview stop`.
 <!-- cloud-setup:end -->
 EOF
 if [ "$WITH_ONBOARDING" = 1 ]; then
@@ -682,7 +761,7 @@ step "Projektspezifische Schritte"
 
 # 8) Zusammenfassung ----------------------------------------------------------
 step "Fertig"
-for t in node php composer python3 uv go cargo docker psql mysql redis-server gh agent-browser vercel fd fzf shellcheck sqlite3 cloud-services cloud-warm cloud-install; do
+for t in node php composer python3 uv go cargo docker psql mysql redis-server gh agent-browser vercel fd fzf shellcheck sqlite3 op tailscale cloud-services cloud-warm cloud-install cloud-doctor cloud-preview; do
   printf "  %-14s %s\n" "$t" "$(command -v $t >/dev/null && echo ok || echo -)"
 done
 printf "  skills:"; for d in /root/.claude/skills/*/; do d=$(basename "$d"); case $d in synced|session-start-hook) ;; *) printf " %s" "$d";; esac; done; echo

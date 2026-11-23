@@ -76,6 +76,7 @@ aus der Link Library (hoch bewertet, alle getestet klonbar): `emilkowalski/skill
 | `docker-run-proxied …` | `docker run` mit Internet über den Session-Proxy |
 | `cloud-warm <ordner> [chromium webkit]` | **Im Setup-Feld:** Paket-Cache (pnpm/npm/composer/uv) und passende Playwright-Browser vorab in den Snapshot laden, ohne Install-Skripte |
 | `cloud-doctor [--quiet] [repo]` | Prüft, was das Projekt in der VM braucht und was fehlt (Werte nie sichtbar) |
+| `cloud-preview <port>\|stop\|status` | Dev-Server nur im eigenen Tailscale-Netz freigeben (mit `WITH_TAILSCALE=1`) |
 | `cloud-install <ordner>` | **In der Session:** Abhängigkeiten installieren, wenn Umgebungsvariablen (z. B. Lizenz-Keys) da sind; überspringt, wenn das Lockfile unverändert ist |
 | `/Applications/Google Chrome.app/…` | Wrapper auf das Linux-Chrome mit `--no-sandbox`, damit Skripte mit festem macOS-Pfad laufen |
 
@@ -121,6 +122,23 @@ Standard (`WITH_ONBOARDING=1`). Hooks laufen in Projekt-Threads nicht, deshalb d
   sieben gebündelte Fragen (Zweck und Nutzer, Merge, Live-Grenze, Vorschau, Vorlage, Orvel-Liste, Lücken) und schreibt
   die Antworten in `.claude/projekt-setup.md`, die erwarteten Variablennamen in `.claude/cloud-secrets.txt`.
   Danach fragt kein Thread mehr.
+
+## Vorschau aus der Cloud (vorbereitet, noch nicht testbar)
+
+`WITH_TAILSCALE=1` (Standard aus) installiert Tailscale als statische Dateien und die 1Password-CLI `op`
+(einzeln: `WITH_1PASSWORD=1`). In der Session macht `cloud-preview <port>` einen Dev-Server nur für die eigenen
+Geräte im privaten Tailscale-Netz erreichbar:
+
+1. `tailscaled` im Userspace-Modus, Zustand nur im Speicher (kein TUN, kein eingehender Port).
+2. Anmeldung als kurzlebiges Gerät `cloud-<repo>-<zufall>` mit `tag:cloud` am Steuerserver `TS_LOGIN_SERVER`
+   (Headscale). Schlüssel aus `TS_AUTHKEY` oder per `op read` (`OP_SERVICE_ACCOUNT_TOKEN`, Verweis `TS_AUTHKEY_REF`,
+   Standard `op://Cloud Basis/Headscale Cloud-Schlüssel/credential`).
+3. `tailscale serve` gibt den Port per HTTPS frei und nennt die Adresse. `cloud-preview stop` meldet ab.
+
+Ohne `TS_LOGIN_SERVER` bricht der Befehl mit klarer Meldung ab. Testbar erst, wenn Headscale läuft und der
+Schlüssel im Vault liegt. Braucht Netzwerk *Full* (oder `pkgs.tailscale.com`, `cache.agilebits.com`,
+die Headscale-Adresse und `*.1password.com` freigeben). Die Zugriffsregel „Cloud-Geräte erreichen nichts“
+gehört in Headscale.
 
 ## Orvel (optional)
 
