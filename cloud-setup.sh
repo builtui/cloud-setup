@@ -166,6 +166,7 @@ if [ "$WITH_ORVEL" = 1 ] && command -v orvel >/dev/null; then
 # jeder Befehl selbst.
 #   orvel-todo lists                        Listen mit IDs (JSON)
 #   orvel-todo add --list <id|Name> --title "..." [--notes "..."] --agent-ref <ref>
+#   orvel-todo list create --name "..." --json   neue Liste (nur anlegen)
 set -euo pipefail
 command -v orvel >/dev/null || { echo "orvel-todo: orvel ist nicht installiert" >&2; exit 1; }
 [ -n "${ORVEL_AGENT_CREDENTIAL:-}" ] || { echo "orvel-todo: Secret ORVEL_AGENT_CREDENTIAL fehlt in der Umgebung" >&2; exit 1; }
@@ -212,8 +213,9 @@ Never add:
 ## How
 
 1. `orvel-todo lists` shows the lists with their ids. Pick the list that fits the project or topic of this work
-   (by name). Do not create lists. If none fits clearly, take the list whose name is closest to the topic and say
-   which one you picked in your reply.
+   (by name). If no list fits, create one named after the project or topic, short and in the user's words
+   (`orvel-todo list create --name "Kunde X Shop" --json`), and use its id. Never rename, archive or delete lists.
+   Say in your reply which list you used or created.
 2. Add the task:
 
    ```bash
@@ -230,7 +232,7 @@ Never add:
 3. Tell the user in one line in your reply that the task is in Orvel and in which list.
 
 If `orvel-todo` fails (secret missing, service unreachable), mention the task in your reply instead and go on.
-Only use `orvel-todo add` and `orvel-todo lists`: do not move, change or complete the user's tasks.
+Only use `orvel-todo add`, `orvel-todo lists` and `orvel-todo list create`: do not move, change or complete the user's tasks.
 EOF
 fi
 
