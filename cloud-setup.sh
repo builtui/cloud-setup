@@ -294,7 +294,7 @@ chmod +x /usr/local/bin/docker-run-proxied
 # das Setup noch nicht sieht). Füllt Paket-Cache + Playwright-Browser im Snapshot.
 cat > /usr/local/bin/cloud-warm <<'EOF'
 #!/bin/bash
-# Nutzung: cloud-warm <projektordner> [browser ...]   z. B. cloud-warm brand-canvas chromium webkit
+# Nutzung: cloud-warm <projektordner> [browser ...]   z. B. cloud-warm mein-repo chromium webkit
 dir="${1:-.}"; shift || true
 cd "$dir" 2>/dev/null || { echo "cloud-warm: $dir fehlt"; exit 0; }
 export COMPOSER_ALLOW_SUPERUSER=1
