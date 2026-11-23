@@ -47,6 +47,7 @@ echo "== cloud-setup start $(date -Is) =="
 : "${WITH_ONBOARDING:=1}"     # Ersteinrichtung pro Projekt (cloud-doctor, Skill projekt-einrichtung)
 : "${WITH_WISSEN:=1}"         # Hinweis + Skill für gemeinsames Wissen (Ordner wissen/ im Repo WISSEN_REPO)
 : "${WISSEN_REPO:=builtui/ops}"  # privates Repo, muss am Project hängen
+: "${SHARED_RULES:=gemeinsam.md}"  # persönliche gemeinsame Anweisungen in diesem Repo, landen in ~/.claude/CLAUDE.md
 
 # Zusätzliche apt-Pakete (Leerzeichen-getrennt)
 APT_EXTRA="${APT_EXTRA:-}"
@@ -731,6 +732,7 @@ Stack
   Nutzers. Bestehende Payload-Projekte bleiben auf Payload und werden normal weiter gepflegt.
 
 Design
+- Kein Styling ohne benannte Vorlage; fehlt sie, zuerst danach fragen.
 - Bei Design- und UI-Arbeit die passenden Design-Skills laden: `apple-design`, `emil-design-eng`
   und die `better-*`-Familie (`better-interface` für den Gesamtblick).
 - Der Taste-Skill (`design-taste-frontend`) lädt nur auf Zuruf (`/design-taste-frontend`) und gilt dann als Anregung, nie als Vorschrift.
@@ -744,10 +746,19 @@ Arbeitsweise
   „Außerdem geändert“ nennen.
 - Selbst handeln statt fragen (Wunsch des Nutzers): eigene PRs nach grüner lokaler Prüfung selbst
   mergen, Befehle selbst ausführen. Rückfragen nur, wenn etwas Daten endgültig löscht, ein laufendes
-  Kundensystem trifft oder Geld kostet; dann in einfacher Sprache mit Empfehlung.
+  Kundensystem trifft, Geld kostet oder ein neues Konto braucht; dann in einfacher Sprache mit Empfehlung.
+- Mit dem Nutzer: Ergebnis zuerst, kurz, keine Fachbegriffe ohne Grund. Was nur er tun kann, auf
+  einen Schritt mit genauer Stelle reduzieren, keine Anleitungen mit vielen Schritten. Code,
+  Bezeichner, Kommentare und Commits auf Englisch.
+- Geheimnisse: Werte nie ausgeben, nie in Dateien, Commits oder Chats; nichts Geheimes in öffentliche Repos.
+- Voller Umfang ist Standard: offene Punkte erledigen statt auflisten.
 - Keine neuen Freigabe-Regeln („nur mit Ja des Nutzers“) in Repos oder Anweisungen schreiben, die der
   Nutzer nicht selbst so gesagt hat.
 - Vor jedem Anlegen (Repo, Ordner, Version, Datei, Umgebung) nach Vorhandenem suchen und es nennen.
+- Stand am Ende jedes Threads in `CONTEXT.md` des Repos; nichts außerhalb von Repo oder Project-Memory ablegen.
+- Texte: eigener Durchgang vor dem Abschluss; keine Antithesen, Aphorismen, Personifizierungen, erfundenen Namen.
+- Abschlussbericht in dieser Reihenfolge: Offen für dich · Ergebnis · Außerdem geändert · Entschieden ·
+  Nicht geprüft.
 - Langes Feedback (Diktat, viele Punkte) zuerst als nummerierte Liste ins Repo schreiben
   (`feedback/<datum>.md`) und am Ende jeden Punkt abhaken.
 - Fertig erst mit Beleg: UI mit eigenem Screenshot der laufenden Arbeit (in der Cloud per
@@ -860,6 +871,21 @@ Braucht ein anderes Project etwas von dir oder du von ihm: Issue in __WREPO__ mi
 EOF
   # Repo-Namen einsetzen (konfigurierbar über WISSEN_REPO)
   wdir=$(basename "$WISSEN_REPO")
+  # Persönliche gemeinsame Anweisungen aus dem privaten Repo (liegt beim Bau schon geklont daneben)
+  if [ -f "./$wdir/$SHARED_RULES" ]; then
+    { echo; echo "## Gemeinsame Anweisungen (aus $WISSEN_REPO/$SHARED_RULES; ist die Datei neuer, gilt sie)"
+      sed '1{/^Stand:/d}; /^# /d; s/^## /### /' "./$wdir/$SHARED_RULES"; } > /tmp/cloud-setup-shared.md
+    python3 - <<'PY'
+p = "/root/.claude/CLAUDE.md"
+s = open(p).read()
+s = s.replace("<!-- cloud-setup:end -->", open("/tmp/cloud-setup-shared.md").read() + "<!-- cloud-setup:end -->", 1)
+open(p, "w").write(s)
+PY
+    rm -f /tmp/cloud-setup-shared.md
+    echo "  gemeinsame Anweisungen aus $wdir/$SHARED_RULES übernommen"
+  else
+    warn "$wdir/$SHARED_RULES nicht gefunden (Repo $WISSEN_REPO nicht am Project?)"
+  fi
   sed -i "s#__WREPO__#$WISSEN_REPO#g; s#__WDIR__#$wdir#g" /root/.claude/CLAUDE.md /root/.claude/skills/wissen/SKILL.md
 fi
 

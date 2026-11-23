@@ -149,6 +149,10 @@ nach, bevor sie fragen oder neu recherchieren, und tragen am Ende ein, was über
 Issues mit Label `an:<project>` dienen als Postfach zwischen Projects. **Das private Repo (`WISSEN_REPO`, Standard `builtui/ops`) muss an
 jedes Project gehängt werden**, sonst arbeitet die Session ohne es weiter (das Setup kann private Repos nicht klonen).
 
+Liegt im Repo die Datei `SHARED_RULES` (Standard `gemeinsam.md`), kopiert das Setup sie in `~/.claude/CLAUDE.md`. Dort stehen
+persönliche gemeinsame Anweisungen, die nicht ins öffentliche Skript gehören. Die Project-Anweisungen enthalten dann nur
+noch das Project-Eigene.
+
 ## Werkzeuge aus der Link-Sammlung (geprüft 23.11.2026)
 
 | Schalter | Was | Standard |
