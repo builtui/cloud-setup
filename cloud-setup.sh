@@ -675,6 +675,8 @@ Stack
 - Webprojekte mit Tailwind CSS. Wo React sinnvoll ist: shadcn/ui auf Tailwind, Standardkomponenten
   aus shadcn und seinen Registries statt selbst gebauter Grundkomponenten.
 - Mit Tailwind immer `@shadcn/lint` (npm) einrichten und vor Abschluss laufen lassen.
+- CMS für Kundenprojekte: Neue Projekte eher mit TYPO3 (Seitenbaum), langfristige Richtung des
+  Nutzers. Bestehende Payload-Projekte bleiben auf Payload und werden normal weiter gepflegt.
 
 Design
 - Bei Design- und UI-Arbeit die passenden Design-Skills laden: `apple-design`, `emil-design-eng`
