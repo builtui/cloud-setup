@@ -123,7 +123,7 @@ Standard (`WITH_ONBOARDING=1`). Hooks laufen in Projekt-Threads nicht, deshalb d
   die Antworten in `.claude/projekt-setup.md`, die erwarteten Variablennamen in `.claude/cloud-secrets.txt`.
   Danach fragt kein Thread mehr.
 
-## Vorschau aus der Cloud (vorbereitet, noch nicht testbar)
+## Vorschau aus der Cloud
 
 `WITH_TAILSCALE=1` (Standard aus) installiert Tailscale als statische Dateien und die 1Password-CLI `op`
 (einzeln: `WITH_1PASSWORD=1`). In der Session macht `cloud-preview <port>` einen Dev-Server nur für die eigenen
@@ -131,12 +131,14 @@ Geräte im privaten Tailscale-Netz erreichbar:
 
 1. `tailscaled` im Userspace-Modus, Zustand nur im Speicher (kein TUN, kein eingehender Port).
 2. Anmeldung als kurzlebiges Gerät `cloud-<repo>-<zufall>` mit `tag:cloud` am Steuerserver `TS_LOGIN_SERVER`
-   (Headscale). Schlüssel aus `TS_AUTHKEY` oder per `op read` (`OP_SERVICE_ACCOUNT_TOKEN`, Verweis `TS_AUTHKEY_REF`,
-   Standard `op://Cloud Basis/Headscale Cloud-Schlüssel/credential`).
-3. `tailscale serve` gibt den Port per HTTPS frei und nennt die Adresse. `cloud-preview stop` meldet ab.
+   (Headscale). Der Tag kommt aus dem Pre-Auth-Key, `--advertise-tags` lehnt Headscale ab. Schlüssel aus `TS_AUTHKEY`
+   oder per `op` (`OP_SERVICE_ACCOUNT_TOKEN`): Standard ist der Eintrag „Headscale Cloud-Schlüssel“ im Tresor
+   „Cloud Basis“ (`op item get`, weil `op read` kein „ü“ im Verweis annimmt); eigener Verweis in `TS_AUTHKEY_REF`, nur ASCII.
+3. `tailscale serve --http=80` gibt den Port per http frei (Headscale stellt keine HTTPS-Zertifikate aus) und nennt
+   die Adresse `http://<gerät>.<magicdns-domain>` (die 100.64.x.x-IP liefert 404). `cloud-preview stop` meldet ab.
 
-Ohne `TS_LOGIN_SERVER` bricht der Befehl mit klarer Meldung ab. Testbar erst, wenn Headscale läuft und der
-Schlüssel im Vault liegt. Braucht Netzwerk *Full* (oder `pkgs.tailscale.com`, `cache.agilebits.com`,
+Ohne `TS_LOGIN_SERVER` bricht der Befehl mit klarer Meldung ab. Getestet am 23.11.2026 mit Headscale unter
+`vpn.undraft.de`. Braucht Netzwerk *Full* (oder `pkgs.tailscale.com`, `cache.agilebits.com`,
 die Headscale-Adresse und `*.1password.com` freigeben). Die Zugriffsregel „Cloud-Geräte erreichen nichts“
 gehört in Headscale.
 

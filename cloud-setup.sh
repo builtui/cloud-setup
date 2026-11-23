@@ -572,7 +572,9 @@ if [ "$WITH_TAILSCALE" = 1 ]; then
 # cloud-preview stop            Freigabe beenden, Gerät abmelden
 # cloud-preview status
 # Braucht: TS_LOGIN_SERVER (Headscale-Adresse, kein Geheimnis) und einen Schlüssel
-# aus TS_AUTHKEY oder per op (OP_SERVICE_ACCOUNT_TOKEN, Verweis TS_AUTHKEY_REF).
+# aus TS_AUTHKEY oder per op (OP_SERVICE_ACCOUNT_TOKEN; Eintrag "Headscale Cloud-Schlüssel" im
+# Tresor "Cloud Basis" oder ein eigener Verweis in TS_AUTHKEY_REF, nur ASCII).
+# Headscale stellt keine HTTPS-Zertifikate aus: Freigabe per http auf Port 80.
 set -euo pipefail
 SOCK=/run/tailscale.sock; ts() { tailscale --socket="$SOCK" "$@"; }
 die() { echo "cloud-preview: $*" >&2; exit 1; }
@@ -595,18 +597,26 @@ if ! ts status >/dev/null 2>&1; then
   if [ -z "$key" ]; then
     command -v op >/dev/null || die "kein TS_AUTHKEY und keine 1Password-CLI"
     [ -n "${OP_SERVICE_ACCOUNT_TOKEN:-}" ] || die "kein TS_AUTHKEY und kein OP_SERVICE_ACCOUNT_TOKEN in der Umgebung"
-    key=$(op read "${TS_AUTHKEY_REF:-op://Cloud Basis/Headscale Cloud-Schlüssel/credential}" 2>/dev/null) \
-      || die "Schlüssel nicht lesbar (${TS_AUTHKEY_REF:-op://Cloud Basis/Headscale Cloud-Schlüssel/credential})"
+    # op read lehnt Nicht-ASCII im Verweis ab ("ü"), daher Standard per Name über op item get.
+    if [ -n "${TS_AUTHKEY_REF:-}" ]; then
+      key=$(op read "$TS_AUTHKEY_REF" 2>/dev/null) || die "Schlüssel nicht lesbar ($TS_AUTHKEY_REF)"
+    else
+      key=$(op item get "Headscale Cloud-Schlüssel" --vault "Cloud Basis" --fields credential --reveal 2>/dev/null) \
+        || die "Schlüssel nicht lesbar (Tresor \"Cloud Basis\", Eintrag \"Headscale Cloud-Schlüssel\")"
+    fi
   fi
   repo=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
   name="${2:-cloud-$repo-$(head -c4 /dev/urandom | od -An -tx1 | tr -d ' \n')}"
-  ts up --login-server="$TS_LOGIN_SERVER" --authkey="$key" --hostname="$name" \
-     --advertise-tags=tag:cloud --accept-dns=false >/dev/null || die "Anmeldung fehlgeschlagen, Log: /tmp/tailscaled.log"
+  # Kein --advertise-tags: der Schlüssel bringt tag:cloud mit, Headscale lehnt zusätzliche Tags ab.
+  ts up --reset --login-server="$TS_LOGIN_SERVER" --authkey="$key" --hostname="$name" \
+     --accept-dns=false >/dev/null || die "Anmeldung fehlgeschlagen, Log: /tmp/tailscaled.log"
   unset key
 fi
-ts serve --bg "$port" >/dev/null
+ts serve reset >/dev/null 2>&1 || true
+ts serve --bg --http=80 "$port" >/dev/null || die "Freigabe fehlgeschlagen, Log: /tmp/tailscaled.log"
+# serve antwortet nur auf den Gerätenamen, die 100.64.x.x-IP liefert 404.
 host=$(ts status --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))')
-echo "cloud-preview: https://$host (Port $port, nur aus deinem Tailscale-Netz)"
+echo "cloud-preview: http://$host (Port $port, nur aus deinem Tailscale-Netz)"
 EOF
   chmod +x /usr/local/bin/cloud-preview
 fi
