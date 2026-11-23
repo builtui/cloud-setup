@@ -75,6 +75,7 @@ aus der Link Library (hoch bewertet, alle getestet klonbar): `emilkowalski/skill
 | `cloud-services docker\|mariadb\|postgres\|redis\|all` | Dienste pro Session starten (laufen nach dem Start nie) |
 | `docker-run-proxied …` | `docker run` mit Internet über den Session-Proxy |
 | `cloud-warm <ordner> [chromium webkit]` | **Im Setup-Feld:** Paket-Cache (pnpm/npm/composer/uv) und passende Playwright-Browser vorab in den Snapshot laden, ohne Install-Skripte |
+| `cloud-doctor [--quiet] [repo]` | Prüft, was das Projekt in der VM braucht und was fehlt (Werte nie sichtbar) |
 | `cloud-install <ordner>` | **In der Session:** Abhängigkeiten installieren, wenn Umgebungsvariablen (z. B. Lizenz-Keys) da sind; überspringt, wenn das Lockfile unverändert ist |
 | `/Applications/Google Chrome.app/…` | Wrapper auf das Linux-Chrome mit `--no-sandbox`, damit Skripte mit festem macOS-Pfad laufen |
 
@@ -89,7 +90,7 @@ nutzen oder die Domain unter „Allowed domains“ eintragen.
 ## Grundregeln für jede Session
 
 Standard (`WITH_RULES=1`): Das Skript schreibt Grundregeln in `~/.claude/CLAUDE.md`: Tailwind für Webprojekte,
-shadcn/ui wo React sinnvoll ist, `@shadcn/lint` mit Tailwind, Design-Skills (`apple-design`, `emil-design-eng`,
+shadcn/ui wo React sinnvoll ist, Arbeitsweise (Rangfolge, Korrekturen eng auslegen, erst Vorhandenes suchen, Diktate als Liste im Repo, fertig nur mit Screenshot, Skill-Nachweis, laufende Prozesse im Abschluss), `@shadcn/lint` mit Tailwind, Design-Skills (`apple-design`, `emil-design-eng`,
 `better-*`), additiv statt destruktiv arbeiten, Tests nach Gewicht der Änderung statt immer der vollen Suite.
 Vorgaben des Nutzers und des Repos gehen vor. Ausschalten mit `WITH_RULES=0`.
 
@@ -107,6 +108,19 @@ Ausschalten mit `LOCAL_CI=0 bash <(curl …)`.
 Die VM hat dafür alles Nötige: 4 vCPU/16 GB, Docker (auch für Service-Container wie Mailpit), PHP/Composer, Node,
 Chrome und Playwright, MariaDB/Postgres/Redis über `cloud-services`. `act` (GitHub-Workflows lokal in Docker) ist
 nicht eingebaut und nicht getestet.
+
+## Ersteinrichtung pro Projekt
+
+Standard (`WITH_ONBOARDING=1`). Hooks laufen in Projekt-Threads nicht, deshalb drei Teile:
+
+- **Regel** in `~/.claude/CLAUDE.md`: Jeder Thread führt zu Beginn `cloud-doctor --quiet` im Hauptrepo aus.
+- **`cloud-doctor [--quiet] [repo]`** prüft Netz, Dienste, Nachbar-Repos, erwartete Variablen (nur Name und Länge),
+  Lockfiles, Playwright-Version, Workflows, Branches, Mac-only-Teile, feste `/Users/`-Pfade und fehlende Nachbarordner.
+  Mit `--quiet` meldet er nur Fehlendes.
+- **Skill `projekt-einrichtung`**: Fehlt `.claude/projekt-setup.md`, prüft der Thread erst selbst, stellt dann höchstens
+  sieben gebündelte Fragen (Zweck und Nutzer, Merge, Live-Grenze, Vorschau, Vorlage, Orvel-Liste, Lücken) und schreibt
+  die Antworten in `.claude/projekt-setup.md`, die erwarteten Variablennamen in `.claude/cloud-secrets.txt`.
+  Danach fragt kein Thread mehr.
 
 ## Orvel (optional)
 

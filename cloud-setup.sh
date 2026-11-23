@@ -36,9 +36,10 @@ echo "== cloud-setup start $(date -Is) =="
 : "${WITH_AGENT_BROWSER:=1}"  # vercel-labs/agent-browser (Browser-CLI für Agenten)
 : "${WITH_VERCEL_CLI:=0}"     # Vercel CLI (nur bei Vercel-Deployments sinnvoll)
 : "${WITH_SKILLS:=1}"         # Skills aus GitHub nach ~/.claude/skills holen
-: "${WITH_REPO_HOOKS:=1}"
+: "${WITH_REPO_HOOKS:=1}"     # <repo>/.claude/cloud-setup.sh jedes Repos ausführen
 : "${LOCAL_CI:=1}"            # Sessions prüfen in der VM statt über GitHub Actions
-: "${WITH_RULES:=1}"          # Grundregeln (Stack, Design, additiv, Tests nach Gewicht)     # <repo>/.claude/cloud-setup.sh jedes Repos ausführen
+: "${WITH_RULES:=1}"          # Grundregeln (Stack, Design, Arbeitsweise, additiv, Tests nach Gewicht)
+: "${WITH_ONBOARDING:=1}"     # Ersteinrichtung pro Projekt (cloud-doctor, Skill projekt-einrichtung)
 
 # Zusätzliche apt-Pakete (Leerzeichen-getrennt)
 APT_EXTRA="${APT_EXTRA:-}"
@@ -373,6 +374,162 @@ if [ -x /usr/bin/google-chrome ]; then
   chmod +x "$MAC_CHROME"
 fi
 
+# 4b) Ersteinrichtung pro Projekt: cloud-doctor + Skill projekt-einrichtung ---
+# Hooks laufen in Projekt-Threads nicht. Deshalb: Regel im CLAUDE.md-Block,
+# ein Skill mit den Fragen und eine Merkdatei im Repo (.claude/projekt-setup.md).
+if [ "$WITH_ONBOARDING" = 1 ]; then
+step "Ersteinrichtung (cloud-doctor, Skill projekt-einrichtung)"
+cat > /usr/local/bin/cloud-doctor <<'EOF'
+#!/bin/bash
+# cloud-doctor [--quiet] [repo ...]
+# Prüft, was ein Projekt in dieser Cloud-VM braucht. Gibt Werte von Variablen nie aus.
+# --quiet: nur Fehlendes, eine Zeile pro Befund (für den Start jedes Threads).
+quiet=0; [ "${1:-}" = "--quiet" ] && { quiet=1; shift; }
+repos=("$@")
+if [ ${#repos[@]} = 0 ]; then
+  if git rev-parse --show-toplevel >/dev/null 2>&1; then repos=("$(git rev-parse --show-toplevel)")
+  else for d in ./*/; do [ -d "$d/.git" ] && repos+=("${d%/}"); done; fi
+fi
+for i in "${!repos[@]}"; do repos[i]=$(realpath "${repos[i]}"); done
+say()  { [ $quiet = 0 ] && echo "$@"; }
+miss() { echo "FEHLT: $*"; }
+
+net() { # 0 = erreichbar, 1 = vom Proxy gesperrt
+  local c; c=$(curl -s -o /dev/null -m 6 -w '%{http_connect} %{http_code}' "https://$1/" 2>/dev/null)
+  case "$c" in 403*|"000 000") return 1;; *) return 0;; esac
+}
+
+if [ $quiet = 0 ]; then
+  echo "== VM"
+  for h in cdn.playwright.dev orvel.undraft.de pkg.ddev.com; do
+    if net "$h"; then echo "  Netz $h: erreichbar"; else echo "  Netz $h: gesperrt (Netzwerk Limited?)"; fi
+  done
+  for s in dockerd:docker mariadbd:mariadb postgres:postgres redis-server:redis; do
+    if pgrep -x "${s%%:*}" >/dev/null 2>&1; then echo "  ${s#*:}: läuft"
+    else echo "  ${s#*:}: aus (cloud-services ${s#*:})"; fi
+  done
+  echo "  Repos nebeneinander: $(for d in "$(dirname "$(realpath "${repos[0]:-.}")")"/*/; do [ -d "$d/.git" ] && printf '%s ' "$(basename "$d")"; done)"
+fi
+
+for r in "${repos[@]}"; do
+  name=$(basename "$r"); cd "$r" || continue
+  say ""; say "== $name"
+  # Merkdatei der Ersteinrichtung
+  if [ -f .claude/projekt-setup.md ]; then say "  Ersteinrichtung: erledigt (.claude/projekt-setup.md)"
+  else miss "$name: Ersteinrichtung offen (Skill projekt-einrichtung)"; fi
+  # Erwartete Variablen: Liste im Repo plus bekannte Fundstellen
+  vars=$( { [ -f .claude/cloud-secrets.txt ] && grep -oE '^[A-Z][A-Z0-9_]+' .claude/cloud-secrets.txt
+            git grep -hoIE '\$\{?[A-Z][A-Z0-9_]{3,}\}?' -- '.npmrc' '*/.npmrc' 2>/dev/null | tr -d '${}'
+            git grep -qIE 'CENTRAL_LICENSE_KEY|@central-icons' -- 'package.json' '*/package.json' '.npmrc' '*/.npmrc' 2>/dev/null && echo CENTRAL_LICENSE_KEY
+          } | sort -u)
+  for v in $vars; do
+    val="${!v:-}"
+    if [ -n "$val" ]; then say "  Variable $v: gesetzt (${#val} Zeichen)"
+    else miss "$name: Umgebungsvariable $v nicht gesetzt (Cloud-Umgebung, Environment variables)"; fi
+  done
+  [ $quiet = 1 ] && continue
+  # Was das Projekt mitbringt
+  for l in pnpm-lock.yaml package-lock.json yarn.lock bun.lock composer.lock uv.lock; do
+    f=$(git ls-files "$l" "*/$l" 2>/dev/null | grep -v node_modules | head -5 | tr '\n' ' ')
+    [ -n "$f" ] && echo "  Lockfile $l: $f"
+  done
+  pw=$(git grep -hoIE "(/playwright|playwright)@[0-9]+\.[0-9]+\.[0-9]+" -- '*pnpm-lock.yaml' '*package-lock.json' 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sort -u | tr '\n' ' ')
+  [ -n "$pw" ] && echo "  Playwright im Lockfile: $pw(vorinstalliert: $(npx --no-install playwright --version 2>/dev/null | awk '{print $2}'))"
+  [ -d .github/workflows ] && echo "  GitHub-Workflows: $(ls .github/workflows | tr '\n' ' ')(lokal nachstellen, nicht starten)"
+  heads=$(git ls-remote --heads origin 2>/dev/null | awk '{sub("refs/heads/","",$2); print $2}')
+  def=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#origin/##')
+  echo "  Branches: Standard ${def:-?}; $(echo "$heads" | grep -E '^(develop|dev|staging|next|main|master)$' | tr '\n' ' ')"
+  mac=$(git ls-files | grep -E '\.xcodeproj/|\.xcworkspace/|(^|/)Package\.swift$|\.entitlements$' | head -3 | tr '\n' ' ')
+  [ -n "$mac" ] && echo "  Nur auf dem Mac (Xcode/Signatur): $mac"
+  up=$(git grep -lI '/Users/' -- ':!*.lock' ':!*lock.yaml' ':!*lock.json' ':!*.md' ':!*.log' ':!.claude/' 2>/dev/null | head -5 | tr '\n' ' ')
+  [ -n "$up" ] && echo "  Feste Mac-Pfade (/Users/...) in: $up"
+  sib=$(git grep -hoIE '\.\./(\.\./)*[A-Z][A-Za-z0-9_-]+/' -- ':!*.md' ':!.claude/' 2>/dev/null | sed -E 's#(\.\./)+##; s#/$##' | sort -u)
+  for s in $sib; do [ -e "../$s" ] || [ -e "$s" ] || echo "  Verweis auf Nachbarordner ../$s fehlt (Repo anhängen oder Symlink im Setup-Feld)"; done
+  for f in CLAUDE.md CONTEXT.md .claude/launch.json .claude/rules .claude/skills; do [ -e "$f" ] && printf '  vorhanden: %s\n' "$f"; done
+  if [ -f .claude/settings.json ] && grep -q '"hooks"' .claude/settings.json; then
+    echo "  Repo-Hooks in .claude/settings.json: laufen in Projekt-Threads nicht"
+  fi
+done
+exit 0
+EOF
+chmod +x /usr/local/bin/cloud-doctor
+
+mkdir -p /root/.claude/skills/projekt-einrichtung
+cat > /root/.claude/skills/projekt-einrichtung/SKILL.md <<'EOF'
+---
+name: projekt-einrichtung
+description: One-time setup of a project for cloud sessions. Use when the main repo has no .claude/projekt-setup.md, when cloud-doctor reports "Ersteinrichtung offen", or when the user asks to set up a project or environment.
+---
+
+# Ersteinrichtung eines Projekts
+
+Läuft einmal pro Repo. Ergebnis ist `.claude/projekt-setup.md` im Repo; solange die Datei da ist, fragt kein
+Thread mehr. Mit dem Nutzer in seiner Sprache sprechen.
+
+## 1. Selbst prüfen, bevor gefragt wird
+
+- `cloud-doctor <repo>` ausführen und die Ausgabe auswerten (Netz, fehlende Variablen, Lockfiles, Playwright,
+  Workflows, Branches, Mac-only-Teile, feste Mac-Pfade, fehlende Nachbarordner, vorhandene Regeln).
+- `CLAUDE.md`, `CONTEXT.md`, `README` und die letzten Commits lesen. Was dort steht, wird nicht gefragt.
+- Projekt-Memory lesen. Was dort steht, wird nicht gefragt.
+- Wenn möglich die Cloud-Umgebung ansehen (Umgebungs-Tools): Name, Netzwerk, Setup-Feld.
+
+## 2. Einmal fragen, gebündelt
+
+Eine Nachricht, höchstens sieben Fragen, jede mit Antwortmöglichkeiten und Empfehlung. Jede Frage weglassen,
+die Schritt 1 oder der Kontext schon beantwortet. Nicht warten: mit den Empfehlungen weiterarbeiten und
+Antworten später einarbeiten.
+
+1. Wofür und für wen ist das Projekt (eigenes Produkt, Kundenprojekt, Website, Werkzeug)? Gibt es schon Nutzer?
+   (Mit Nutzern gilt für riskante Änderungen die volle Suite.)
+2. Wer merged? Empfehlung: Thread merged eigene PRs nach grüner lokaler Prüfung selbst.
+3. Was ist live (Branch, Deploy-Ziel), und darf ein Thread davon etwas ohne Rückfrage? Empfehlung: nichts.
+4. Wie sieht der Nutzer Ergebnisse aus der Cloud? Screenshots im Repo / Staging-URL / Remote Control auf dem Mac.
+5. Nur bei UI: Was ist die Vorlage oder das Designsystem, und was wird übernommen (Struktur, Stil, Wirkung)?
+6. Nur wenn Orvel eingerichtet ist (`orvel-todo`): In welche Liste kommen To-dos aus diesem Projekt?
+7. Nur wenn Schritt 1 Lücken fand: fehlende Repos, Variablen oder Netzwerkfreigaben nennen. Nie nach Werten
+   fragen und keine Tokens im Chat annehmen; nur „ist eingetragen“.
+
+Sprache, Berichtsaufbau, Teststufen, Stack und additives Arbeiten nicht fragen: das regeln die Grundregeln.
+
+## 3. Schreiben und selbst erledigen
+
+- `.claude/projekt-setup.md` anlegen (Vorlage unten), dazu `.claude/cloud-secrets.txt` mit den Namen der
+  erwarteten Variablen, eine pro Zeile, nie Werte. Committen und pushen nach den Regeln des Repos.
+- Setup-Feld der Umgebung passend vorschlagen (`cloud-warm <ordner> [chromium webkit]`, Symlinks für
+  Nachbarordner, Schalter wie `WITH_ORVEL=1`). Mit dem Ja des Nutzers selbst eintragen, wenn die
+  Umgebungs-Tools verfügbar sind; sonst den fertigen Text liefern.
+- Fehlt ein Baustein für die Projekt-Anweisungen, ihn als Datei liefern (gemeinsame Regeln plus Projektteil).
+  Eintragen muss der Nutzer selbst.
+- Was nur der Nutzer erledigen kann (Variable eintragen, Repo anhängen, Netzwerk umstellen) als To-do in
+  Orvel anlegen, wenn eingerichtet; sonst im Bericht unter „Offen für dich“ mit Ort.
+- Eine Zeile ins Projekt-Memory: „<repo> eingerichtet am <datum>, siehe .claude/projekt-setup.md“.
+
+## Vorlage `.claude/projekt-setup.md`
+
+```markdown
+# Projekt-Setup (Ersteinrichtung <datum>)
+
+Zweck und Nutzer: …
+Merge: …
+Live und Freigaben: …
+Vorschau: …
+Vorlage / Designsystem: …
+Orvel-Liste: …
+Startbranch: …
+Nur auf dem Mac: …
+Cloud-Umgebung: <name>, Netzwerk <Full|Limited + Hosts>, Setup-Feld siehe unten
+Variablen: siehe .claude/cloud-secrets.txt
+Offen: …
+
+## Setup-Feld
+(Text, wie er in der Umgebung steht)
+```
+
+Ändert sich später etwas davon, die Datei direkt anpassen; sie ist die Quelle für spätere Threads.
+EOF
+fi
+
 # 5) Persönliche Hinweise für Claude (~/.claude/CLAUDE.md) --------------------
 step "/root/.claude/CLAUDE.md schreiben"
 mkdir -p /root/.claude
@@ -400,6 +557,19 @@ cat >> /root/.claude/CLAUDE.md <<'EOF'
 - Log des Setups: /var/log/cloud-setup.log
 <!-- cloud-setup:end -->
 EOF
+if [ "$WITH_ONBOARDING" = 1 ]; then
+  python3 - <<'PY'
+p = "/root/.claude/CLAUDE.md"
+s = open(p).read()
+rule = """- Ersteinrichtung: Zu Beginn jedes Threads `cloud-doctor --quiet` im Hauptrepo ausführen. Meldet es
+  „Ersteinrichtung offen“, einmal den Skill `projekt-einrichtung` laden und das Projekt einrichten
+  (erst selbst prüfen, dann höchstens sieben gebündelte Fragen, Antworten nach `.claude/projekt-setup.md`).
+  Ist die Datei da, nichts fragen; fehlende Variablen nur in einer Zeile melden und weiterarbeiten.
+"""
+s = s.replace("<!-- cloud-setup:end -->", rule + "<!-- cloud-setup:end -->", 1)
+open(p, "w").write(s)
+PY
+fi
 if [ "$WITH_RULES" = 1 ]; then
   python3 - <<'PY'
 p = "/root/.claude/CLAUDE.md"
@@ -417,6 +587,21 @@ Design
   und die `better-*`-Familie (`better-interface` für den Gesamtblick).
 - Der Taste-Skill (`design-taste-frontend`) lädt nur auf Zuruf (`/design-taste-frontend`) und gilt dann als Anregung, nie als Vorschrift.
   Bei Widerspruch gehen die anderen Skills, die Projektvorgaben und Vorlagen des Nutzers vor.
+
+Arbeitsweise
+- Rangfolge bei Widerspruch: Auftrag des Nutzers, dann CLAUDE.md und Regeln des Repos, dann diese
+  Grundregeln, dann Skills und Playbooks.
+- Korrekturen so eng umsetzen, wie sie gesagt wurden. Feedback zu einer Arbeit wird keine allgemeine
+  Regel, außer der Nutzer sagt es. Nur ändern, was verlangt ist; anderes im Bericht unter
+  „Außerdem geändert“ nennen.
+- Vor jedem Anlegen (Repo, Ordner, Version, Datei, Umgebung) nach Vorhandenem suchen und es nennen.
+- Langes Feedback (Diktat, viele Punkte) zuerst als nummerierte Liste ins Repo schreiben
+  (`feedback/<datum>.md`) und am Ende jeden Punkt abhaken.
+- Fertig erst mit Beleg: UI mit eigenem Screenshot der laufenden Arbeit (in der Cloud per
+  `agent-browser`), neben der Vorlage, wenn es eine gibt.
+- Im Abschluss je genutztem Skill eine Zeile, was er konkret verändert hat. Ohne diese Zeile gilt er
+  als nicht benutzt.
+- Im Abschluss nennen, was im Hintergrund noch läuft und wem es gehört.
 
 Additiv statt destruktiv
 - Größere Iterationen (neues Design, neues Konzept, Umbau) als neue Version anlegen (Ordner oder
