@@ -45,6 +45,8 @@ echo "== cloud-setup start $(date -Is) =="
 : "${QUITT_URL:=}"            # Basis-URL der Quitt-Instanz
 : "${EXPLORE_MODEL:=haiku}"   # Modell des Such-Helfers Explore (leer = Standard, also das Hauptmodell)
 : "${WITH_SKILLS:=1}"         # Skills aus GitHub nach ~/.claude/skills holen
+: "${WITH_PSTACK:=1}"         # pstack (cursor/plugins): poteto-mode, principle-*, tdd, how, why … plus Agents
+: "${WITH_PONYTAIL:=1}"       # ponytail (DietrichGebert/ponytail): kleinste Lösung, ponytail-review/-audit
 : "${WITH_REPO_HOOKS:=1}"     # <repo>/.claude/cloud-setup.sh jedes Repos ausführen
 : "${LOCAL_CI:=1}"            # Sessions prüfen in der VM statt über GitHub Actions
 : "${WITH_RULES:=1}"          # Grundregeln (Stack, Design, Arbeitsweise, additiv, Tests nach Gewicht)
@@ -52,6 +54,19 @@ echo "== cloud-setup start $(date -Is) =="
 : "${WITH_WISSEN:=1}"         # Hinweis + Skill für gemeinsames Wissen (Ordner wissen/ im Repo WISSEN_REPO)
 : "${WISSEN_REPO:=builtui/ops}"  # privates Repo, muss am Project hängen
 : "${SHARED_RULES:=gemeinsam.md}"  # persönliche gemeinsame Anweisungen in diesem Repo, landen in ~/.claude/CLAUDE.md
+
+# Private Vorgaben (Serveradressen, Tresor- und Eintragsnamen) stehen nicht in diesem öffentlichen
+# Skript, sondern als Zeilen NAME=wert in $PRIVATE_DEFAULTS im Repo WISSEN_REPO (liegt beim Bau daneben).
+# Werte aus dem Aufruf oder der Umgebung gehen vor; gelesen werden nur Zeilen der Form NAME=wert.
+: "${PRIVATE_DEFAULTS:=cloud-setup.env}"
+_priv="./$(basename "$WISSEN_REPO")/$PRIVATE_DEFAULTS"
+if [ -f "$_priv" ]; then
+  while IFS='=' read -r k v; do
+    [[ $k =~ ^[A-Z][A-Z0-9_]*$ ]] || continue
+    [ -z "${!k:-}" ] && export "$k=$v"
+  done < "$_priv"
+  echo "private Vorgaben aus $_priv gelesen"
+fi
 
 # Zusätzliche apt-Pakete (Leerzeichen-getrennt)
 APT_EXTRA="${APT_EXTRA:-}"
@@ -67,6 +82,9 @@ NPM_EXTRA="${NPM_EXTRA:-}"
 : "${TAILSCALE_VERSION:=}"    # leer = aktuelle stabile Version beim Bau
 : "${WITH_1PASSWORD:=0}"      # 1Password-CLI (op); bei WITH_TAILSCALE=1 immer dabei
 : "${OP_VERSION:=2.42.0}"
+: "${TS_LOGIN_SERVER:=}"      # Adresse des Headscale-Servers (meist aus den privaten Vorgaben)
+: "${TS_AUTHKEY_VAULT:=}"     # 1Password-Tresor und Eintrag mit dem Pre-Auth-Key (Feld credential)
+: "${TS_AUTHKEY_ITEM:=}"
 
 # Skills: "<github-owner/repo>:<skill>[,<skill>...]"  (Leerzeichen-getrennt)
 # Öffentliche Repos funktionieren immer. Private Repos nur, wenn sie an die
@@ -157,6 +175,30 @@ skills_job() {
       fi
     done
   done
+  # pstack: Skills hängen voneinander ab, daher alle. Die Sperre disable-model-invocation fällt weg,
+  # damit Agenten sie selbst laden; der Cursor-Modellname der Agents wird zu "opus".
+  if [ "$WITH_PSTACK" = 1 ]; then
+    if git clone -q --depth 1 --filter=blob:none --sparse https://github.com/cursor/plugins.git "$tmp/cp" 2>/dev/null \
+       && git -C "$tmp/cp" sparse-checkout set pstack 2>/dev/null && [ -d "$tmp/cp/pstack/skills" ]; then
+      rm -rf "$tmp/cp/pstack/skills/statechart/scripts/test"
+      for d in "$tmp/cp/pstack/skills"/*/; do
+        s=$(basename "$d"); rm -rf "/root/.claude/skills/$s"; cp -r "$d" "/root/.claude/skills/$s"
+        sed -i '/^disable-model-invocation:/d' "/root/.claude/skills/$s/SKILL.md"
+      done
+      mkdir -p /root/.claude/agents
+      for a in "$tmp/cp/pstack/agents"/*.md; do
+        sed 's/^model: claude-.*/model: opus/' "$a" > "/root/.claude/agents/$(basename "$a")"
+      done
+      echo "pstack: $(ls "$tmp/cp/pstack/skills" | wc -l) Skills, Agents $(cd "$tmp/cp/pstack/agents" && ls | tr '\n' ' ')"
+    else warn "pstack nicht geladen (github.com/cursor/plugins)"; fi
+  fi
+  if [ "$WITH_PONYTAIL" = 1 ]; then
+    if git clone -q --depth 1 https://github.com/DietrichGebert/ponytail.git "$tmp/pt" 2>/dev/null; then
+      for d in "$tmp/pt/skills"/ponytail*/; do
+        s=$(basename "$d"); rm -rf "/root/.claude/skills/$s"; cp -r "$d" "/root/.claude/skills/$s"; echo "skill: $s (ponytail)"
+      done
+    else warn "ponytail nicht geladen (github.com/DietrichGebert/ponytail)"; fi
+  fi
   rm -rf "$tmp"
 }
 
@@ -430,7 +472,7 @@ net() { # 0 = erreichbar, 1 = vom Proxy gesperrt
 
 if [ $quiet = 0 ]; then
   echo "== VM"
-  for h in cdn.playwright.dev orvel.undraft.de pkg.ddev.com; do
+  for h in cdn.playwright.dev pkg.ddev.com __DOCTOR_HOSTS__; do
     if net "$h"; then echo "  Netz $h: erreichbar"; else echo "  Netz $h: gesperrt (Netzwerk Limited?)"; fi
   done
   for s in dockerd:docker mariadbd:mariadb postgres:postgres redis-server:redis; do
@@ -481,6 +523,9 @@ for r in "${repos[@]}"; do
 done
 exit 0
 EOF
+# Eigene Dienste (Orvel, Headscale) nur prüfen, wenn sie eingestellt sind; Adressen stehen nicht im Skript.
+extra=""; for u in "$ORVEL_CLI_URL" "$TS_LOGIN_SERVER"; do [ -n "$u" ] && { u=${u#*://}; extra="$extra ${u%%/*}"; }; done
+sed -i "s# __DOCTOR_HOSTS__#$extra#" /usr/local/bin/cloud-doctor
 chmod +x /usr/local/bin/cloud-doctor
 
 mkdir -p /root/.claude/skills/projekt-einrichtung
@@ -591,13 +636,16 @@ if [ "$WITH_TAILSCALE" = 1 ]; then
 # cloud-preview stop            Freigabe beenden, Gerät abmelden
 # cloud-preview status
 # Braucht: TS_LOGIN_SERVER (Headscale-Adresse, kein Geheimnis) und einen Schlüssel
-# aus TS_AUTHKEY oder per op (OP_SERVICE_ACCOUNT_TOKEN; Eintrag "Headscale Cloud-Schlüssel" im
-# Tresor "Cloud Basis" oder ein eigener Verweis in TS_AUTHKEY_REF, nur ASCII).
+# aus TS_AUTHKEY oder per op (OP_SERVICE_ACCOUNT_TOKEN; Verweis TS_AUTHKEY_REF, nur ASCII,
+# oder Tresor TS_AUTHKEY_VAULT + Eintrag TS_AUTHKEY_ITEM). Vorgaben aus dem Setup: /etc/cloud-preview.env
 # Headscale stellt keine HTTPS-Zertifikate aus: Freigabe per http auf Port 80.
 set -euo pipefail
 SOCK=/run/tailscale.sock; ts() { tailscale --socket="$SOCK" "$@"; }
 die() { echo "cloud-preview: $*" >&2; exit 1; }
 case "${1:-}" in ""|-h|--help) sed -n '2,6p' "$0"; exit 0 ;; esac
+if [ -f /etc/cloud-preview.env ]; then
+  while IFS='=' read -r k v; do [[ $k =~ ^TS_[A-Z_]+$ ]] && [ -z "${!k:-}" ] && export "$k=$v"; done < /etc/cloud-preview.env
+fi
 command -v tailscaled >/dev/null || die "Tailscale fehlt (WITH_TAILSCALE=1 im Setup-Feld, Netzwerk Full)"
 case "${1:-}" in
   status) ts status 2>/dev/null || echo "nicht verbunden"; ts serve status 2>/dev/null || true; exit 0 ;;
@@ -616,12 +664,13 @@ if ! ts status >/dev/null 2>&1; then
   if [ -z "$key" ]; then
     command -v op >/dev/null || die "kein TS_AUTHKEY und keine 1Password-CLI"
     [ -n "${OP_SERVICE_ACCOUNT_TOKEN:-}" ] || die "kein TS_AUTHKEY und kein OP_SERVICE_ACCOUNT_TOKEN in der Umgebung"
-    # op read lehnt Nicht-ASCII im Verweis ab ("ü"), daher Standard per Name über op item get.
+    # op read lehnt Nicht-ASCII im Verweis ab (z. B. "ü"), daher auch per Name über op item get.
     if [ -n "${TS_AUTHKEY_REF:-}" ]; then
       key=$(op read "$TS_AUTHKEY_REF" 2>/dev/null) || die "Schlüssel nicht lesbar ($TS_AUTHKEY_REF)"
-    else
-      key=$(op item get "Headscale Cloud-Schlüssel" --vault "Cloud Basis" --fields credential --reveal 2>/dev/null) \
-        || die "Schlüssel nicht lesbar (Tresor \"Cloud Basis\", Eintrag \"Headscale Cloud-Schlüssel\")"
+    elif [ -n "${TS_AUTHKEY_VAULT:-}" ] && [ -n "${TS_AUTHKEY_ITEM:-}" ]; then
+      key=$(op item get "$TS_AUTHKEY_ITEM" --vault "$TS_AUTHKEY_VAULT" --fields credential --reveal 2>/dev/null) \
+        || die "Schlüssel nicht lesbar (Tresor und Eintrag aus TS_AUTHKEY_VAULT/TS_AUTHKEY_ITEM)"
+    else die "kein Schlüssel: TS_AUTHKEY, TS_AUTHKEY_REF oder TS_AUTHKEY_VAULT + TS_AUTHKEY_ITEM setzen"
     fi
   fi
   repo=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
@@ -638,6 +687,9 @@ host=$(ts status --json | python3 -c 'import json,sys; print(json.load(sys.stdin
 echo "cloud-preview: http://$host (Port $port, nur aus deinem Tailscale-Netz)"
 EOF
   chmod +x /usr/local/bin/cloud-preview
+  # Keine Geheimnisse, nur Adresse und Namen; Umgebungsvariablen der Session gehen vor.
+  printf 'TS_LOGIN_SERVER=%s\nTS_AUTHKEY_VAULT=%s\nTS_AUTHKEY_ITEM=%s\n' \
+    "$TS_LOGIN_SERVER" "$TS_AUTHKEY_VAULT" "$TS_AUTHKEY_ITEM" > /etc/cloud-preview.env
 fi
 
 # 4e) Hetzner-CLI hcloud (optional) -------------------------------------------
@@ -770,8 +822,6 @@ Stack
 - Webprojekte mit Tailwind CSS. Wo React sinnvoll ist: shadcn/ui auf Tailwind, Standardkomponenten
   aus shadcn und seinen Registries statt selbst gebauter Grundkomponenten.
 - Mit Tailwind immer `@shadcn/lint` (npm) einrichten und vor Abschluss laufen lassen.
-- CMS für Kundenprojekte: Neue Projekte eher mit TYPO3 (Seitenbaum), langfristige Richtung des
-  Nutzers. Bestehende Payload-Projekte bleiben auf Payload und werden normal weiter gepflegt.
 
 Design
 - Kein Styling ohne benannte Vorlage; fehlt sie, zuerst danach fragen.
@@ -832,6 +882,26 @@ Tests nach Gewicht der Änderung
 s = s.replace("<!-- cloud-setup:end -->", rule + "<!-- cloud-setup:end -->", 1)
 open(p, "w").write(s)
 PY
+fi
+if [ "$WITH_PSTACK" = 1 ] || [ "$WITH_PONYTAIL" = 1 ]; then
+  python3 - <<'PY2'
+p = "/root/.claude/CLAUDE.md"
+s = open(p).read()
+rule = """
+## pstack und ponytail (vom Setup in ~/.claude/skills installiert)
+- Code-Aufgaben ab mittlerer Größe (mehr als eine Datei, Entwurfsentscheidung, Fehler mit unklarer Ursache,
+  Performance): Skills `poteto-mode` (routet weiter zu Playbook und `principle-*`) und `ponytail` laden.
+  Kleines direkt ändern, nur `ponytail`. Ist die Absicht klar, gleich `tdd`, `architect`, `how`, `why`.
+- pstack ist für Cursor geschrieben: `pstack:`-Präfixe weglassen; `Task` ist das `Agent`-Tool,
+  `generalPurpose` ist `general-purpose`; Agents `poteto-agent` und `comment-sicko` liegen in ~/.claude/agents.
+  Modelle aus `.claude/rules/pstack-models.md` des Repos, sonst `opus`/`sonnet` statt Cursor-Namen.
+  `poteto-mode` liegt unter `/root/.claude/skills/poteto-mode` (für `Read <pfad>/worker.md`).
+  `/deslop`, `control-ui`, `control-cli` und `~/.cursor/...` gibt es hier nicht; weglassen und sagen.
+- Hat das Repo eigene Kopien in `.claude/skills/`, gelten die.
+"""
+s = s.replace("<!-- cloud-setup:end -->", rule + "<!-- cloud-setup:end -->", 1)
+open(p, "w").write(s)
+PY2
 fi
 if [ "$LOCAL_CI" = 1 ]; then
   # Regel in den Block einfügen (vor dem End-Marker)

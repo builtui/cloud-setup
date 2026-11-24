@@ -64,9 +64,20 @@ Drei Wege, alle bestätigt:
    abgelegte Skills sofort.
 
 Empfehlung: Basis klein halten (jede Skill-Beschreibung kostet in jeder Session Kontext). Standard in `cloud-setup.sh`:
-`agent-browser`, `web-design-guidelines` und die Design-Skills (siehe Grundregeln). Pro Umgebung per `SKILL_SOURCES` erweitern. Kandidaten
-aus der Link Library (hoch bewertet, alle getestet klonbar): `emilkowalski/skills`, `mattpocock/skills`,
-`humanlayer/skills`, pstack (`cursor/plugins` → `pstack/skills`, Skills hängen voneinander ab, besser als Plugin).
+`agent-browser`, `web-design-guidelines`, die Design-Skills (siehe Grundregeln), pstack und ponytail (unten).
+Pro Umgebung per `SKILL_SOURCES` erweitern. Kandidaten aus der Link Library (hoch bewertet, alle getestet klonbar):
+`emilkowalski/skills`, `mattpocock/skills`, `humanlayer/skills`.
+
+### pstack und ponytail (Standard an)
+
+- `WITH_PSTACK=1`: alle Skills aus `cursor/plugins` → `pstack/skills` (sie verweisen aufeinander) und die Agents
+  `poteto-agent`, `comment-sicko` nach `~/.claude/agents`. Die Sperre `disable-model-invocation` wird entfernt, damit
+  Agenten die Skills selbst laden; der Cursor-Modellname der Agents wird `opus`.
+- `WITH_PONYTAIL=1`: die Skills `ponytail`, `ponytail-review`, `-audit`, `-debt`, `-gain`, `-help` aus
+  `DietrichGebert/ponytail`. Die Hooks des Plugins nicht, weil Projekt-Threads keine Hooks ausführen; der Skill lädt
+  bei Code-Aufgaben von selbst, Stufe `full`.
+- Ein Abschnitt in `~/.claude/CLAUDE.md` sagt, wann `poteto-mode` und `ponytail` geladen werden und wie die
+  Cursor-Begriffe in Claude Code heißen. Ausschalten mit `WITH_PSTACK=0` bzw. `WITH_PONYTAIL=0`.
 
 ## Helfer, die das Skript installiert
 
@@ -132,13 +143,13 @@ Geräte im privaten Tailscale-Netz erreichbar:
 1. `tailscaled` im Userspace-Modus, Zustand nur im Speicher (kein TUN, kein eingehender Port).
 2. Anmeldung als kurzlebiges Gerät `cloud-<repo>-<zufall>` mit `tag:cloud` am Steuerserver `TS_LOGIN_SERVER`
    (Headscale). Der Tag kommt aus dem Pre-Auth-Key, `--advertise-tags` lehnt Headscale ab. Schlüssel aus `TS_AUTHKEY`
-   oder per `op` (`OP_SERVICE_ACCOUNT_TOKEN`): Standard ist der Eintrag „Headscale Cloud-Schlüssel“ im Tresor
-   „Cloud Basis“ (`op item get`, weil `op read` kein „ü“ im Verweis annimmt); eigener Verweis in `TS_AUTHKEY_REF`, nur ASCII.
+   oder per `op` (`OP_SERVICE_ACCOUNT_TOKEN`): Verweis in `TS_AUTHKEY_REF` (nur ASCII) oder Tresor und Eintrag in
+   `TS_AUTHKEY_VAULT` und `TS_AUTHKEY_ITEM` (`op item get`, geht auch mit Umlauten im Namen).
 3. `tailscale serve --http=80` gibt den Port per http frei (Headscale stellt keine HTTPS-Zertifikate aus) und nennt
    die Adresse `http://<gerät>.<magicdns-domain>` (die 100.64.x.x-IP liefert 404). `cloud-preview stop` meldet ab.
 
-Ohne `TS_LOGIN_SERVER` bricht der Befehl mit klarer Meldung ab. Getestet am 23.11.2026 mit Headscale unter
-`vpn.undraft.de`. Braucht Netzwerk *Full* (oder `pkgs.tailscale.com`, `cache.agilebits.com`,
+Ohne `TS_LOGIN_SERVER` bricht der Befehl mit klarer Meldung ab. Getestet am 23.11.2026 mit einem eigenen
+Headscale-Server. Braucht Netzwerk *Full* (oder `pkgs.tailscale.com`, `cache.agilebits.com`,
 die Headscale-Adresse und `*.1password.com` freigeben). Die Zugriffsregel „Cloud-Geräte erreichen nichts“
 gehört in Headscale.
 
@@ -152,6 +163,10 @@ jedes Project gehängt werden**, sonst arbeitet die Session ohne es weiter (das 
 Liegt im Repo die Datei `SHARED_RULES` (Standard `gemeinsam.md`), kopiert das Setup sie in `~/.claude/CLAUDE.md`. Dort stehen
 persönliche gemeinsame Anweisungen, die nicht ins öffentliche Skript gehören. Die Project-Anweisungen enthalten dann nur
 noch das Project-Eigene.
+
+**Private Vorgaben:** Serveradressen, Tresor- und Eintragsnamen stehen nicht in diesem Repo. Das Setup liest sie aus
+`PRIVATE_DEFAULTS` (Standard `cloud-setup.env`) im selben privaten Repo, eine Zeile `NAME=wert` pro Wert, z. B.
+`TS_LOGIN_SERVER`, `TS_AUTHKEY_VAULT`, `TS_AUTHKEY_ITEM`. Werte aus dem Setup-Feld oder der Umgebung gehen vor.
 
 ## Werkzeuge aus der Link-Sammlung (geprüft 23.11.2026)
 
