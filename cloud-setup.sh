@@ -765,6 +765,7 @@ cat >> /root/.claude/CLAUDE.md <<'EOF'
 - Projekt-Threads führen KEINE Hooks aus `.claude/settings.json` aus. Vor dem ersten Build/Test im
   Projektordner `cloud-install <ordner>` ausführen (installiert mit Lockfile, merkt sich den Stand).
   Hat ein Repo eigene Start-Hooks (z. B. `.claude/hooks/*.sh`), diese bei Bedarf selbst ausführen.
+  Gibt ein Start-Hook nur Text aus (z. B. `cat .claude/hooks/<datei>.md`), diese Datei zu Beginn selbst lesen; dauerhaft bindet das Repo sie per `@.claude/hooks/<datei>.md` in seine CLAUDE.md ein.
 - Composer als root: `COMPOSER_ALLOW_SUPERUSER=1` muss gesetzt sein, sonst sind Plugins aus
   (TYPO3-Installer!). Ist in ~/.bashrc gesetzt; falls nicht, voranstellen.
 - Der macOS-Chrome-Pfad `/Applications/Google Chrome.app/...` existiert hier als Wrapper auf
